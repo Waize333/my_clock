@@ -3,26 +3,26 @@
 @tailwind utilities;
 :root {
   --bg: #fff;
-  --fg: #171917;
-  --muted: #777c77;
-  --border: #e9ece7;
-  --subtle: #f6f7f4;
-  --accent: #879b74;
-  --accent-soft: #eef2e9;
-  --button: #20251e;
+  --fg: #101b33;
+  --muted: #64748b;
+  --border: #e2e8f3;
+  --subtle: #f4f7fc;
+  --accent: #145bea;
+  --accent-soft: #eaf2ff;
+  --button: #102d69;
   --button-text: #fff;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #000;
-  --fg: #eceee8;
-  --muted: #94998f;
-  --border: #232720;
-  --subtle: #10130e;
-  --accent: #a4b58d;
-  --accent-soft: #1b2414;
-  --button: #d5dfc8;
-  --button-text: #171d11;
+  --bg: #030916;
+  --fg: #edf4ff;
+  --muted: #94a8c7;
+  --border: #1b2d49;
+  --subtle: #0a162b;
+  --accent: #38b6ff;
+  --accent-soft: #0b2948;
+  --button: #38b6ff;
+  --button-text: #04142b;
   color-scheme: dark;
 }
 * {

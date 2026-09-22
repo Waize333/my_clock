@@ -1,6 +1,6 @@
 # Cadence
 
-A calm, personal work/break timer built with Next.js 16.3.5 App Router, TypeScript, Tailwind, Recharts, Neon PostgreSQL, and Better Auth. Black/white themes with a restrained sage accent. No fabricated stats or shared account data.
+A calm, personal work/break timer built with Next.js 16.3.5 App Router, TypeScript, Tailwind, Recharts, Neon PostgreSQL, and Better Auth. Light and midnight-blue themes with electric and neon-blue accents. No fabricated stats or shared account data.
 
 ## Run locally
 
