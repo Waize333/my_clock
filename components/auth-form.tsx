@@ -25,6 +25,7 @@ export function AuthForm({
     }
   }, []);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -87,24 +88,37 @@ export function AuthForm({
         cadence.
       </Link>
       <div className="auth-card">
-        <div className="eyebrow">A LITTLE SPACE FOR YOU</div>
+        <nav className="auth-mode" aria-label="Account options">
+          <Link href="/login" aria-current={!signup ? "page" : undefined}>
+            <strong>Log in</strong>
+            <span>I have an account</span>
+          </Link>
+          <Link href="/signup" aria-current={signup ? "page" : undefined}>
+            <strong>Create account</strong>
+            <span>I’m new here</span>
+          </Link>
+        </nav>
+        <div className="eyebrow">
+          {signup ? "GET STARTED WITH CADENCE" : "YOUR ACCOUNT, YOUR SPACE"}
+        </div>
         <h1>
           {signup
-            ? "Find your own rhythm."
+            ? "Create your account."
             : name
               ? `Welcome back, ${name}.`
-              : "Welcome back."}
+              : "Log in to Cadence."}
         </h1>
         <p>
           {signup
-            ? "Make room for focused work and restful pauses."
-            : "Your quiet space is right where you left it."}
+            ? "Choose a profile name, enter your email, and create a password. Then you’re ready to plan your week."
+            : "Enter the email and password you used to create your account to return to your planner."}
         </p>
         {!connected ? (
           <div className="local-auth">
             <p>
-              Neon isn’t configured yet. Explore Cadence with real timer data
-              saved in this browser.
+              Account access isn’t available on this version yet. You can try
+              the planner without an account. Preview data stays in this browser
+              and won’t sync across devices.
             </p>
             <Link className="primary-button" href="/dashboard/local/timer">
               Enter local preview
@@ -125,7 +139,7 @@ export function AuthForm({
                 <div className="or-divider">or use your email</div>
               </>
             )}
-            <form onSubmit={submit}>
+            <form onSubmit={submit} aria-busy={busy}>
               {signup && (
                 <label>
                   Profile name
@@ -144,39 +158,66 @@ export function AuthForm({
                 <input
                   type="email"
                   autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                 />
               </label>
-              <label>
-                Password
-                <input
-                  type="password"
-                  autoComplete={signup ? "new-password" : "current-password"}
-                  minLength={8}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={
-                    signup ? "At least 8 characters" : "Your password"
-                  }
-                />
-              </label>
+              <div className="auth-password">
+                <label htmlFor="account-password">
+                  {signup ? "Create a password" : "Password"}
+                </label>
+                <div className="auth-password-input">
+                  <input
+                    id="account-password"
+                    type={showPassword ? "text" : "password"}
+                    aria-describedby={signup ? "password-hint" : undefined}
+                    autoComplete={signup ? "new-password" : "current-password"}
+                    minLength={signup ? 8 : undefined}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={
+                      signup ? "At least 8 characters" : "Your password"
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+                {signup && (
+                  <p id="password-hint" className="auth-hint">
+                    Use at least 8 characters. You’ll use this password to log
+                    in next time.
+                  </p>
+                )}
+              </div>
               <button className="primary-button" disabled={busy}>
                 {busy
-                  ? "One moment…"
+                  ? signup
+                    ? "Creating your account…"
+                    : "Logging in…"
                   : signup
-                    ? "Create your profile"
-                    : "Sign in"}
+                    ? "Create account"
+                    : "Log in"}
                 <ArrowRight size={16} />
               </button>
             </form>
             <p className="auth-switch">
-              {signup ? "Already have an account?" : "New to Cadence?"}{" "}
+              {signup ? "Already signed up?" : "Don’t have an account yet?"}{" "}
               <Link href={signup ? "/login" : "/signup"}>
-                {signup ? "Sign in" : "Create an account"}
+                {signup ? "Log in to your account" : "Create your account"}
               </Link>
             </p>
           </>
