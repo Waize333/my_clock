@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -11,7 +11,13 @@ import {
 } from "recharts";
 import { ArrowUpRight, Info } from "lucide-react";
 import { useApp } from "@/components/provider";
-import { dailyStats, daySeries, longestStreak, extraStats } from "@/lib/stats";
+import {
+  buildDailyIndex,
+  dailyStats,
+  daySeries,
+  longestStreak,
+  extraStats,
+} from "@/lib/stats";
 import { api } from "@/lib/api";
 import type { Timer } from "@/lib/timer/core";
 export default function StatsPage() {
@@ -21,14 +27,18 @@ export default function StatsPage() {
   const [error, setError] = useState("");
   useEffect(() => {
     if (!app.connected || app.profile.id === "local") return;
-    let cancelled = false;
+    let cancelled = false,
+      inFlight = false;
     const refresh = async () => {
+      if (inFlight || document.hidden) return;
+      inFlight = true;
       try {
         const all: Timer[] = [];
         for (let offset = 0; ; offset += 500) {
           const data = await api<{ timer_state: Timer }[]>(
             `/api/sessions?offset=${offset}`,
           );
+          if (cancelled) return;
           all.push(...data.map((row) => row.timer_state));
           if (data.length < 500) break;
         }
@@ -41,12 +51,14 @@ export default function StatsPage() {
           setError(
             "Insights could not refresh. Your last loaded data is shown.",
           );
+      } finally {
+        inFlight = false;
       }
     };
-    void refresh();
+    if (app.readOnly) void refresh();
     const interval = setInterval(() => {
       if (!document.hidden) void refresh();
-    }, 15000);
+    }, 60000);
     const visible = () => {
       if (!document.hidden) void refresh();
     };
@@ -56,43 +68,30 @@ export default function StatsPage() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [app.profile.id, app.connected]);
-  const sessions = remote
-    ? [
-        ...app.sessions.filter((s) => !s.status),
-        ...remote.filter(
-          (s) =>
-            !app.sessions.some((local) => !local.status && local.id === s.id),
-        ),
-      ]
-    : app.sessions;
-  const extra = extraStats(
-    sessions,
-    new Date(app.now),
-    app.planner.timezone,
-    app.planner.entries,
-  );
-  const today = dailyStats(
-    sessions,
-    new Date(app.now),
-    app.planner.timezone,
-    app.planner.entries,
-    app.now,
-  );
-  const series = daySeries(
-    sessions,
-    range,
-    new Date(app.now),
-    app.planner.timezone,
-    app.planner.entries,
-  );
-  const heatmap = daySeries(
-    sessions,
-    90,
-    new Date(app.now),
-    app.planner.timezone,
-    app.planner.entries,
-  );
+  }, [app.profile.id, app.connected, app.readOnly]);
+  const sessions = useMemo(() => {
+    if (!remote) return app.sessions;
+    const combined = new Map(remote.map((s) => [s.id, s]));
+    for (const s of app.sessions)
+      if (!app.readOnly || !combined.has(s.id)) combined.set(s.id, s);
+    return [...combined.values()];
+  }, [remote, app.sessions, app.readOnly]);
+  const analysisNow =
+    Math.floor(app.now / (app.active?.running ? 1000 : 60000)) *
+    (app.active?.running ? 1000 : 60000);
+  const { extra, today, series, heatmap, streak } = useMemo(() => {
+    const now = new Date(analysisNow),
+      zone = app.planner.timezone,
+      entries = app.planner.entries;
+    const index = buildDailyIndex(sessions, entries, zone, analysisNow);
+    return {
+      extra: extraStats(sessions, now, zone, entries, index),
+      today: dailyStats(sessions, now, zone, entries, analysisNow, index),
+      series: daySeries(sessions, range, now, zone, entries, index),
+      heatmap: daySeries(sessions, 90, now, zone, entries, index),
+      streak: longestStreak(sessions, zone),
+    };
+  }, [sessions, range, analysisNow, app.planner.timezone, app.planner.entries]);
   const max = Math.max(60, ...heatmap.map((d) => d.minutes));
   return (
     <div className="content-page">
@@ -115,7 +114,7 @@ export default function StatsPage() {
             label: "Completion today",
           },
           {
-            value: `${longestStreak(sessions, app.planner.timezone)} days`,
+            value: `${streak} days`,
             label: "Longest daily streak",
           },
         ].map((s) => (
@@ -233,6 +232,7 @@ export default function StatsPage() {
                 formatter={(value) => [`${value} minutes`, "Focused"]}
               />
               <Bar
+                isAnimationActive={false}
                 dataKey="minutes"
                 fill="var(--accent)"
                 radius={[4, 4, 0, 0]}

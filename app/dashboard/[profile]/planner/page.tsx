@@ -1,5 +1,12 @@
 "use client";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -22,7 +29,7 @@ import {
   weekKey,
   tasksForWeek,
   setWeekTasks,
-  loggedDays,
+  buildLogIndex,
   weekSummary,
   formatStamp,
   localInput,
@@ -31,6 +38,7 @@ import {
   type Task,
   type ManualEntry,
 } from "@/lib/planner";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import { snapshot } from "@/lib/timer/core";
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const hours = (seconds: number) =>
@@ -100,14 +108,20 @@ function TaskEditor({
 }) {
   const [draft, setDraft] = useState(task),
     [error, setError] = useState("");
+  const dismiss = useUnsavedChanges(
+    JSON.stringify(draft) !== JSON.stringify(task),
+    busy,
+    close,
+  );
   const update = (v: Partial<Task>) => setDraft({ ...draft, ...v });
   return (
     <Modal
       title={task.name ? "Edit your task" : "A little space for a new task"}
-      close={close}
+      close={dismiss}
     >
       <form
         className="planner-form"
+        aria-busy={busy}
         onSubmit={async (e) => {
           e.preventDefault();
           try {
@@ -284,7 +298,7 @@ function TaskEditor({
           </p>
         )}
         <div className="planner-form-footer">
-          <button type="button" className="secondary-button" onClick={close}>
+          <button type="button" className="secondary-button" onClick={dismiss}>
             Cancel
           </button>
           <button className="primary-button" disabled={busy}>
@@ -320,13 +334,21 @@ function LogEditor({
     [end, setEnd] = useState(localInput(entry?.endedAt || now, zone)),
     [notes, setNotes] = useState(entry?.notes || ""),
     [error, setError] = useState("");
+  const [initial] = useState({ taskId, start, end, notes });
+  const dirty =
+    taskId !== initial.taskId ||
+    start !== initial.start ||
+    end !== initial.end ||
+    notes !== initial.notes;
+  const dismiss = useUnsavedChanges(dirty, busy, close);
   return (
     <Modal
       title={entry ? "Edit logged time" : "Log work away from the timer"}
-      close={close}
+      close={dismiss}
     >
       <form
         className="planner-form"
+        aria-busy={busy}
         onSubmit={async (e) => {
           e.preventDefault();
           try {
@@ -411,7 +433,7 @@ function LogEditor({
           </p>
         )}
         <div className="planner-form-footer">
-          <button type="button" className="secondary-button" onClick={close}>
+          <button type="button" className="secondary-button" onClick={dismiss}>
             Cancel
           </button>
           <button className="primary-button" disabled={busy}>
@@ -435,11 +457,25 @@ export default function PlannerPage() {
     [logEditor, setLogEditor] = useState<ManualEntry | "new" | null>(null),
     [message, setMessage] = useState(""),
     [zone, setZone] = useState(""),
-    [archived, setArchived] = useState(false);
+    [archived, setArchived] = useState(false),
+    [activityLimit, setActivityLimit] = useState(20);
   const week = chosenWeek || currentWeek,
     tasks = tasksForWeek(p, week),
     visible = tasks.filter((t) => archived || !t.archived),
-    summary = weekSummary(p, week, app.sessions, app.now);
+    analysisNow =
+      Math.floor(app.now / (app.active?.running ? 1000 : 60000)) *
+      (app.active?.running ? 1000 : 60000);
+  const logIndex = useMemo(
+    () => buildLogIndex(app.sessions, p.entries, p.timezone, analysisNow),
+    [app.sessions, p.entries, p.timezone, analysisNow],
+  );
+  const summary = useMemo(
+    () => weekSummary(p, week, app.sessions, analysisNow, logIndex),
+    [p, week, app.sessions, analysisNow, logIndex],
+  );
+  useEffect(() => {
+    setActivityLimit(20);
+  }, [week]);
   useEffect(() => {
     setZone(p.timezone);
   }, [p.timezone]);
@@ -523,19 +559,23 @@ export default function PlannerPage() {
     },
     (_, i) => addDays(currentWeek, -i * 7),
   );
-  const weekEntries = p.entries
-    .filter((e) =>
-      summary.days.some((d) => {
-        const byDay = loggedDays([], [e], p.timezone, app.now);
-        return (byDay[d] || 0) > 0;
-      }),
-    )
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  const weekSessions = app.sessions.filter(
-    (s) =>
-      summary.days.some(
-        (d) => (loggedDays([s], [], p.timezone, app.now)[d] || 0) > 0,
-      ) || summary.days.includes(dayKey(s.started_at, p.timezone)),
+  const weekEntries = useMemo(
+    () =>
+      p.entries
+        .filter((e) =>
+          summary.days.some((d) => (logIndex.entries[e.id]?.[d] || 0) > 0),
+        )
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+    [p.entries, summary.days, logIndex],
+  );
+  const weekSessions = useMemo(
+    () =>
+      app.sessions.filter(
+        (s) =>
+          summary.days.some((d) => (logIndex.sessions[s.id]?.[d] || 0) > 0) ||
+          summary.days.includes(dayKey(s.started_at, p.timezone)),
+      ),
+    [app.sessions, summary.days, logIndex, p.timezone],
   );
   return (
     <div className="planner-page">
@@ -546,6 +586,15 @@ export default function PlannerPage() {
           <p>Make a plan. Find your focus. See how far you’ve come.</p>
         </div>
         <div className="planner-top-actions">
+          <span className="save-status" role="status">
+            {app.plannerBusy
+              ? "Saving…"
+              : app.plannerError
+                ? "Not saved — retry your change"
+                : app.plannerSaved
+                  ? "Changes saved"
+                  : ""}
+          </span>
           <button
             className="secondary-button"
             onClick={() => setLogEditor("new")}
@@ -653,12 +702,14 @@ export default function PlannerPage() {
             <div className="segmented">
               <button
                 className={view === "week" ? "active" : ""}
+                aria-pressed={view === "week"}
                 onClick={() => setView("week")}
               >
                 Weekly planner
               </button>
               <button
                 className={view === "history" ? "active" : ""}
+                aria-pressed={view === "history"}
                 onClick={() => setView("history")}
               >
                 History & trends
@@ -791,13 +842,7 @@ export default function PlannerPage() {
                       </thead>
                       <tbody>
                         {visible.map((task) => {
-                          const logged = loggedDays(
-                            app.sessions,
-                            p.entries,
-                            p.timezone,
-                            app.now,
-                            task.id,
-                          );
+                          const logged = logIndex.tasks[task.id] || {};
                           return (
                             <tr
                               key={task.id}
@@ -1113,7 +1158,7 @@ export default function PlannerPage() {
                     Start a task or log time to begin your timeline.
                   </p>
                 )}
-                {weekEntries.map((e) => (
+                {weekEntries.slice(0, activityLimit).map((e) => (
                   <div className="activity-row" key={e.id}>
                     <span className="activity-icon">
                       <Pencil size={16} />
@@ -1149,7 +1194,7 @@ export default function PlannerPage() {
                     </button>
                   </div>
                 ))}
-                {weekSessions.map((raw) => {
+                {weekSessions.slice(0, activityLimit).map((raw) => {
                   const s = snapshot(raw, app.now);
                   return (
                     <details className="session-timeline" key={s.id}>
@@ -1220,6 +1265,15 @@ export default function PlannerPage() {
                     </details>
                   );
                 })}
+                {(weekEntries.length > activityLimit ||
+                  weekSessions.length > activityLimit) && (
+                  <button
+                    className="secondary-button"
+                    onClick={() => setActivityLimit((n) => n + 20)}
+                  >
+                    Show more activity
+                  </button>
+                )}
               </section>
             </>
           ) : (
@@ -1248,7 +1302,13 @@ export default function PlannerPage() {
                   </thead>
                   <tbody>
                     {historyWeeks.map((w) => {
-                      const s = weekSummary(p, w, app.sessions, app.now);
+                      const s = weekSummary(
+                        p,
+                        w,
+                        app.sessions,
+                        analysisNow,
+                        logIndex,
+                      );
                       return (
                         <tr key={w}>
                           <th>

@@ -240,10 +240,15 @@ export function useTimer(owner: string | null) {
     if (!clockReady) return;
     const tick = () => {
       const time = clockNow();
-      setNow(time);
+      setNow((previous) =>
+        Math.floor(previous / 1000) === Math.floor(time / 1000)
+          ? previous
+          : time,
+      );
       if (!ready || readOnly) return;
       const active = cache.current.sessions.find((s) => !s.status);
       if (!active?.running) return;
+      if (time < active.anchor + active.remainingMs) return;
       const result = advance(active, time, uuid);
       if (result.transitions.length) {
         save(result.timer);

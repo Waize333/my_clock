@@ -22,6 +22,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const base = `/dashboard/${app.profile.id}`;
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <header className="header">
         <Link href="/" className="brand" aria-label="Cadence home">
           <Waves size={26} strokeWidth={1.8} />
@@ -40,6 +43,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               key={path}
               className={`nav-link ${pathname.endsWith(path) ? "selected" : ""}`}
               href={`${base}/${path}`}
+              aria-current={pathname.endsWith(path) ? "page" : undefined}
             >
               <Icon size={16} />
               <span>{name}</span>
@@ -78,7 +82,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
           )}
         </div>
       </header>
-      <main>
+      <main id="main-content" tabIndex={-1}>
+        {!app.connected && (
+          <aside className="preview-notice">
+            Local preview · saved only in this browser.{" "}
+            <Link href="/login">
+              Sign in to sync across devices <ArrowUpRight size={13} />
+            </Link>
+          </aside>
+        )}
         {app.accountError && (
           <div className="error-banner" role="alert">
             {app.accountError}

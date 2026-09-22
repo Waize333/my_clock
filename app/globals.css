@@ -2608,3 +2608,105 @@ input::placeholder {
     min-height: 44px;
   }
 }
+/* Clear feedback and keyboard navigation. */
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  transform: translateY(-180%);
+  z-index: 100;
+  background: var(--button);
+  color: var(--button-text);
+  padding: 14px 20px;
+  border-radius: 8px;
+}
+.skip-link:focus {
+  transform: none;
+}
+.preview-notice {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 20px;
+  background: var(--subtle);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  border-bottom: 1px solid var(--border);
+}
+.preview-notice a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.save-status {
+  color: var(--muted);
+  font-size: 11px;
+  align-self: center;
+  line-height: 1.5;
+}
+.save-status:empty {
+  display: none;
+}
+.page-loading {
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 40px 24px;
+  text-align: center;
+}
+.page-loading p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.loading-indicator {
+  height: 24px;
+  width: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+#main-content:focus {
+  outline: none;
+}
+.planner-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) var(--subtle);
+}
+@media (max-width: 650px) {
+  .planner-top-actions {
+    flex-wrap: wrap;
+  }
+  .save-status {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .preview-notice {
+    font-size: 11px;
+    justify-content: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-indicator {
+    animation: none;
+  }
+}

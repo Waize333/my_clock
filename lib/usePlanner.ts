@@ -11,7 +11,8 @@ export function usePlanner(owner: string | null) {
   const [planner, setPlanner] = useState<Planner>(emptyPlanner());
   const [plannerReady, setReady] = useState(false),
     [plannerBusy, setBusy] = useState(false),
-    [plannerError, setError] = useState("");
+    [plannerError, setError] = useState(""),
+    [plannerSaved, setSaved] = useState(false);
   const revision = useRef(0),
     generation = useRef(0),
     saving = useRef(false);
@@ -20,6 +21,7 @@ export function usePlanner(owner: string | null) {
     const current = ++generation.current;
     setReady(false);
     setError("");
+    setSaved(false);
     try {
       let data: Planner;
       if (owner === "local") {
@@ -63,6 +65,7 @@ export function usePlanner(owner: string | null) {
     saving.current = true;
     setBusy(true);
     setError("");
+    setSaved(false);
     try {
       if (owner === "local")
         localStorage.setItem("cadence:planner:local", JSON.stringify(next));
@@ -75,6 +78,7 @@ export function usePlanner(owner: string | null) {
         revision.current = result.revision;
       }
       setPlanner(next);
+      setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save planner.");
       throw e;
@@ -88,6 +92,7 @@ export function usePlanner(owner: string | null) {
     plannerReady,
     plannerBusy,
     plannerError,
+    plannerSaved,
     savePlanner,
     reloadPlanner,
   };

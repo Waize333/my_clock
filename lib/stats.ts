@@ -10,41 +10,59 @@ import {
 export function dateKey(date: Date, zone = deviceTimezone()) {
   return dayKey(date, zone);
 }
-function forDay(
+type DailyIndex = ReturnType<typeof buildDailyIndex>;
+export function buildDailyIndex(
   sessions: Timer[],
-  key: string,
+  entries: ManualEntry[],
   zone: string,
   now: number,
-  entries: ManualEntry[],
 ) {
-  const work = sessions
-    .map((s) => snapshot(s, now))
-    .flatMap((s) => s.intervals)
-    .filter(
-      (i) =>
-        i.type === "work" &&
-        (dayKey(i.started_at, zone) === key ||
-          (intervalDays(i, zone, now)[key] || 0) > 0),
-    );
-  const completed = work.filter(
-    (i) => i.completed && dayKey(i.ended_at || i.started_at, zone) === key,
-  ).length;
-  const totalSeconds = loggedDays(sessions, entries, zone, now)[key] || 0;
-  const adherence = work.length
-    ? work.reduce(
-        (n, i) => n + Math.min(1, i.duration_sec / i.planned_duration_sec),
-        0,
-      ) / work.length
-    : 0;
-  return {
-    seconds: totalSeconds,
-    minutes: Math.round((totalSeconds / 60) * 10) / 10,
+  const totals = loggedDays(sessions, entries, zone, now);
+  const days: Record<
+    string,
+    { started: number; completed: number; adherence: number }
+  > = {};
+  for (const raw of sessions) {
+    const session = raw.status ? raw : snapshot(raw, now);
+    for (const interval of session.intervals) {
+      if (interval.type !== "work") continue;
+      const allocation = intervalDays(interval, zone, now);
+      const keys = new Set([
+        dayKey(interval.started_at, zone),
+        ...Object.keys(allocation).filter((k) => allocation[k] > 0),
+      ]);
+      for (const key of keys) {
+        const day = (days[key] ??= { started: 0, completed: 0, adherence: 0 });
+        day.started++;
+        day.adherence += Math.min(
+          1,
+          interval.duration_sec / interval.planned_duration_sec,
+        );
+        if (
+          interval.completed &&
+          dayKey(interval.ended_at || interval.started_at, zone) === key
+        )
+          day.completed++;
+      }
+    }
+  }
+  return { totals, days };
+}
+function forDay(index: DailyIndex, key: string) {
+  const {
+    started,
     completed,
-    started: work.length,
-    rate: work.length ? Math.round((completed / work.length) * 100) : 0,
-    score: work.length
-      ? Math.round((completed / work.length) * adherence * 100)
-      : 0,
+    adherence: sum,
+  } = index.days[key] || { started: 0, completed: 0, adherence: 0 };
+  const seconds = index.totals[key] || 0,
+    adherence = started ? sum / started : 0;
+  return {
+    seconds,
+    minutes: Math.round((seconds / 60) * 10) / 10,
+    completed,
+    started,
+    rate: started ? Math.round((completed / started) * 100) : 0,
+    score: started ? Math.round((completed / started) * adherence * 100) : 0,
     adherence: Math.round(adherence * 100),
   };
 }
@@ -54,8 +72,9 @@ export function dailyStats(
   zone = deviceTimezone(),
   entries: ManualEntry[] = [],
   now = Date.now(),
+  index = buildDailyIndex(sessions, entries, zone, now),
 ) {
-  return forDay(sessions, dayKey(date, zone), zone, now, entries);
+  return forDay(index, dayKey(date, zone));
 }
 export function daySeries(
   sessions: Timer[],
@@ -63,9 +82,11 @@ export function daySeries(
   now = new Date(),
   zone = deviceTimezone(),
   entries: ManualEntry[] = [],
+  index = buildDailyIndex(sessions, entries, zone, now.getTime()),
 ) {
+  const today = dayKey(now, zone);
   return Array.from({ length: count }, (_, i) => {
-    const key = addDays(dayKey(now, zone), -count + i + 1);
+    const key = addDays(today, -count + i + 1);
     return {
       date: key,
       label: new Date(key + "T12:00Z").toLocaleDateString(undefined, {
@@ -73,7 +94,7 @@ export function daySeries(
         month: "short",
         day: "numeric",
       }),
-      ...forDay(sessions, key, zone, now.getTime(), entries),
+      ...forDay(index, key),
     };
   });
 }
@@ -102,15 +123,16 @@ export function extraStats(
   now = new Date(),
   zone = deviceTimezone(),
   entries: ManualEntry[] = [],
+  index = buildDailyIndex(sessions, entries, zone, now.getTime()),
 ) {
   const all = sessions
-      .map((s) => snapshot(s, now.getTime()))
+      .map((s) => (s.status ? s : snapshot(s, now.getTime())))
       .flatMap((s) => s.intervals),
     work = all.filter((i) => i.type === "work"),
     breaks = all.filter((i) => i.type === "break");
   const seconds = work.reduce((n, i) => n + i.duration_sec, 0),
-    totals = loggedDays(sessions, entries, zone, now.getTime());
-  const fourteen = daySeries(sessions, 14, now, zone, entries),
+    totals = index.totals;
+  const fourteen = daySeries(sessions, 14, now, zone, entries, index),
     thisWeek = fourteen.slice(7).reduce((n, d) => n + d.minutes, 0),
     lastWeek = fourteen.slice(0, 7).reduce((n, d) => n + d.minutes, 0);
   return {

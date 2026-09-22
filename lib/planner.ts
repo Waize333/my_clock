@@ -167,7 +167,6 @@ export function intervalDays(i: Interval, zone: string, now: number) {
       const start = Date.parse(span.started_at),
         end = Math.min(
           start + budget * 1000,
-          now,
           Date.parse(
             span.ended_at || i.ended_at || new Date(now).toISOString(),
           ),
@@ -197,7 +196,7 @@ export function loggedDays(
   };
   for (const raw of sessions) {
     if (taskId !== undefined && raw.task_id !== taskId) continue;
-    const s = snapshot(raw, now);
+    const s = raw.status ? raw : snapshot(raw, now);
     for (const i of s.intervals)
       if (i.type === "work") add(intervalDays(i, zone, now));
   }
@@ -206,15 +205,66 @@ export function loggedDays(
       add(splitDays(Date.parse(e.startedAt), Date.parse(e.endedAt), zone));
   return totals;
 }
+export type LogIndex = {
+  totals: Record<string, number>;
+  extra: Record<string, number>;
+  tasks: Record<string, Record<string, number>>;
+  sessions: Record<string, Record<string, number>>;
+  entries: Record<string, Record<string, number>>;
+};
+export function buildLogIndex(
+  sessions: Timer[],
+  entries: ManualEntry[],
+  zone: string,
+  now: number,
+): LogIndex {
+  const index: LogIndex = {
+    totals: {},
+    extra: {},
+    tasks: {},
+    sessions: {},
+    entries: {},
+  };
+  const add = (
+    target: Record<string, number>,
+    days: Record<string, number>,
+  ) => {
+    for (const [day, seconds] of Object.entries(days))
+      target[day] = (target[day] || 0) + seconds;
+  };
+  for (const raw of sessions) {
+    const days: Record<string, number> = {};
+    const session = raw.status ? raw : snapshot(raw, now);
+    for (const interval of session.intervals)
+      if (interval.type === "work")
+        add(days, intervalDays(interval, zone, now));
+    index.sessions[raw.id] = days;
+    add(index.totals, days);
+    if (raw.task_id) add((index.tasks[raw.task_id] ??= {}), days);
+  }
+  for (const entry of entries) {
+    const days = splitDays(
+      Date.parse(entry.startedAt),
+      Date.parse(entry.endedAt),
+      zone,
+    );
+    index.entries[entry.id] = days;
+    add(index.totals, days);
+    if (entry.taskId) add((index.tasks[entry.taskId] ??= {}), days);
+    else add(index.extra, days);
+  }
+  return index;
+}
 export function weekSummary(
   p: Planner,
   week: string,
   sessions: Timer[],
   now: number,
+  index = buildLogIndex(sessions, p.entries, p.timezone, now),
 ) {
   const tasks = tasksForWeek(p, week).filter((t) => !t.archived),
     days = weekDays(week);
-  const logged = loggedDays(sessions, p.entries, p.timezone, now);
+  const logged = index.totals;
   const planned = days.map((_, i) =>
     tasks
       .filter((t) => t.days.includes(i))
@@ -223,12 +273,7 @@ export function weekSummary(
   const actual = days.map((d) => logged[d] || 0);
   const target = planned.reduce((a, b) => a + b, 0),
     total = actual.reduce((a, b) => a + b, 0);
-  const extraDays = loggedDays(
-    [],
-    p.entries.filter((e) => !e.taskId),
-    p.timezone,
-    now,
-  );
+  const extraDays = index.extra;
   return {
     days,
     planned,
