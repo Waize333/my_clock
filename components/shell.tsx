@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   BarChart3,
   Clock3,
+  CalendarDays,
   Moon,
   Settings2,
   Sun,
@@ -30,6 +31,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </Link>
         <nav aria-label="Main navigation">
           {[
+            { name: "Planner", path: "planner", Icon: CalendarDays },
             { name: "Timer", path: "timer", Icon: Clock3 },
             { name: "Insights", path: "stats", Icon: BarChart3 },
             { name: "Settings", path: "settings", Icon: Settings2 },

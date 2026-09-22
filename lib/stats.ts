@@ -1,17 +1,35 @@
 import { snapshot, type Timer } from "./timer/core";
-export function dateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+import {
+  addDays,
+  dayKey,
+  deviceTimezone,
+  intervalDays,
+  loggedDays,
+  type ManualEntry,
+} from "./planner";
+export function dateKey(date: Date, zone = deviceTimezone()) {
+  return dayKey(date, zone);
 }
-export function dailyStats(sessions: Timer[], date: Date) {
+function forDay(
+  sessions: Timer[],
+  key: string,
+  zone: string,
+  now: number,
+  entries: ManualEntry[],
+) {
   const work = sessions
-    .map((s) => snapshot(s, Date.now()))
+    .map((s) => snapshot(s, now))
     .flatMap((s) => s.intervals)
     .filter(
       (i) =>
-        i.type === "work" && dateKey(new Date(i.started_at)) === dateKey(date),
+        i.type === "work" &&
+        (dayKey(i.started_at, zone) === key ||
+          (intervalDays(i, zone, now)[key] || 0) > 0),
     );
-  const completed = work.filter((i) => i.completed).length;
-  const totalSeconds = work.reduce((n, i) => n + i.duration_sec, 0);
+  const completed = work.filter(
+    (i) => i.completed && dayKey(i.ended_at || i.started_at, zone) === key,
+  ).length;
+  const totalSeconds = loggedDays(sessions, entries, zone, now)[key] || 0;
   const adherence = work.length
     ? work.reduce(
         (n, i) => n + Math.min(1, i.duration_sec / i.planned_duration_sec),
@@ -30,60 +48,76 @@ export function dailyStats(sessions: Timer[], date: Date) {
     adherence: Math.round(adherence * 100),
   };
 }
-export function daySeries(sessions: Timer[], count: number, now = new Date()) {
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(now);
-    date.setHours(12, 0, 0, 0);
-    date.setDate(date.getDate() - count + index + 1);
+export function dailyStats(
+  sessions: Timer[],
+  date: Date,
+  zone = deviceTimezone(),
+  entries: ManualEntry[] = [],
+  now = Date.now(),
+) {
+  return forDay(sessions, dayKey(date, zone), zone, now, entries);
+}
+export function daySeries(
+  sessions: Timer[],
+  count: number,
+  now = new Date(),
+  zone = deviceTimezone(),
+  entries: ManualEntry[] = [],
+) {
+  return Array.from({ length: count }, (_, i) => {
+    const key = addDays(dayKey(now, zone), -count + i + 1);
     return {
-      date: dateKey(date),
-      label: date.toLocaleDateString(undefined, {
+      date: key,
+      label: new Date(key + "T12:00Z").toLocaleDateString(undefined, {
+        timeZone: "UTC",
         month: "short",
         day: "numeric",
       }),
-      ...dailyStats(sessions, date),
+      ...forDay(sessions, key, zone, now.getTime(), entries),
     };
   });
 }
-export function longestStreak(sessions: Timer[]) {
+export function longestStreak(sessions: Timer[], zone = deviceTimezone()) {
   const dates = [
     ...new Set(
       sessions
         .flatMap((s) => s.intervals)
         .filter((i) => i.type === "work" && i.completed)
-        .map((i) => dateKey(new Date(i.started_at))),
+        .map((i) => dayKey(i.started_at, zone)),
     ),
   ].sort();
   let longest = 0,
     current = 0,
     last = 0;
   for (const key of dates) {
-    const day = Date.parse(`${key}T00:00:00Z`) / 86400000;
+    const day = Date.parse(key + "T00:00Z") / 86400000;
     current = day === last + 1 ? current + 1 : 1;
     longest = Math.max(longest, current);
     last = day;
   }
   return longest;
 }
-
-export function extraStats(sessions: Timer[], now = new Date()) {
+export function extraStats(
+  sessions: Timer[],
+  now = new Date(),
+  zone = deviceTimezone(),
+  entries: ManualEntry[] = [],
+) {
   const all = sessions
-    .map((s) => snapshot(s, now.getTime()))
-    .flatMap((s) => s.intervals);
-  const work = all.filter((i) => i.type === "work");
-  const breaks = all.filter((i) => i.type === "break");
-  const seconds = work.reduce((n, i) => n + i.duration_sec, 0);
-  const days = new Set(
-    work
-      .filter((i) => i.duration_sec > 0)
-      .map((i) => dateKey(new Date(i.started_at))),
-  ).size;
-  const fourteen = daySeries(sessions, 14, now);
-  const thisWeek = fourteen.slice(7).reduce((n, d) => n + d.minutes, 0);
-  const lastWeek = fourteen.slice(0, 7).reduce((n, d) => n + d.minutes, 0);
+      .map((s) => snapshot(s, now.getTime()))
+      .flatMap((s) => s.intervals),
+    work = all.filter((i) => i.type === "work"),
+    breaks = all.filter((i) => i.type === "break");
+  const seconds = work.reduce((n, i) => n + i.duration_sec, 0),
+    totals = loggedDays(sessions, entries, zone, now.getTime());
+  const fourteen = daySeries(sessions, 14, now, zone, entries),
+    thisWeek = fourteen.slice(7).reduce((n, d) => n + d.minutes, 0),
+    lastWeek = fourteen.slice(0, 7).reduce((n, d) => n + d.minutes, 0);
   return {
-    totalMinutes: Math.round(seconds / 60),
-    activeDays: days,
+    totalMinutes: Math.round(
+      Object.values(totals).reduce((a, b) => a + b, 0) / 60,
+    ),
+    activeDays: Object.values(totals).filter((v) => v > 0).length,
     averageMinutes: work.length ? Math.round(seconds / work.length / 60) : 0,
     longestMinutes: Math.round(
       Math.max(0, ...work.map((i) => i.duration_sec)) / 60,

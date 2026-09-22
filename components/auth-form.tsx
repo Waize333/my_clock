@@ -52,7 +52,7 @@ export function AuthForm({
           name: result.data.user.name || name || email.split("@")[0],
           email,
         });
-        router.push(`/dashboard/${result.data.user.id}/timer`);
+        router.push(`/dashboard/${result.data.user.id}/planner`);
         router.refresh();
       } else
         setMessage(

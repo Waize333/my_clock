@@ -57,6 +57,35 @@ try {
     ).rowCount,
     0,
   );
+  assert.equal(
+    (
+      await client.query("SELECT * FROM cadence.planners WHERE user_id=$1", [
+        owned.user_id,
+      ])
+    ).rowCount,
+    0,
+  );
+  assert.equal(
+    (
+      await client.query(
+        "UPDATE cadence.planners SET data='{}'::jsonb WHERE user_id=$1",
+        [owned.user_id],
+      )
+    ).rowCount,
+    0,
+  );
+  await client.query("savepoint planner_write");
+  let plannerDenied = false;
+  try {
+    await client.query(
+      "INSERT INTO cadence.planners(user_id,data) VALUES($1,'{}'::jsonb)",
+      [owned.user_id],
+    );
+  } catch (e) {
+    plannerDenied = e.code === "42501";
+  }
+  await client.query("rollback to savepoint planner_write");
+  assert.equal(plannerDenied, true);
   await client.query("savepoint invalid_write");
   let denied = false;
   try {
@@ -70,7 +99,7 @@ try {
   await client.query("rollback to savepoint invalid_write");
   assert.equal(denied, true);
   console.log(
-    "PASS: non-bypass role, session/interval read isolation, profile update isolation, cross-account insert blocked by RLS.",
+    "PASS: non-bypass role, session/interval read isolation, profile/planner update isolation, cross-account inserts blocked by RLS.",
   );
 } finally {
   await client.query("rollback");

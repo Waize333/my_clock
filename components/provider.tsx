@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth/client";
 import { rememberProfile } from "@/lib/profiles";
 import { useTimer } from "@/lib/timer/useTimer";
+import { usePlanner } from "@/lib/usePlanner";
 export type Profile = {
   id: string;
   username: string;
@@ -29,15 +30,16 @@ const defaults: Profile = {
   default_break_min: 10,
   theme_pref: "system",
 };
-type Context = ReturnType<typeof useTimer> & {
-  profile: Profile;
-  accountReady: boolean;
-  updateProfile: (values: Partial<Profile>) => Promise<void>;
-  theme: "light" | "dark";
-  toggleTheme: () => void;
-  accountError: string;
-  connected: boolean;
-};
+type Context = ReturnType<typeof useTimer> &
+  ReturnType<typeof usePlanner> & {
+    profile: Profile;
+    accountReady: boolean;
+    updateProfile: (values: Partial<Profile>) => Promise<void>;
+    theme: "light" | "dark";
+    toggleTheme: () => void;
+    accountError: string;
+    connected: boolean;
+  };
 const AppContext = createContext<Context | null>(null);
 export function Provider({
   children,
@@ -53,6 +55,7 @@ export function Provider({
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const router = useRouter();
   const timer = useTimer(owner);
+  const planner = usePlanner(owner);
   useEffect(() => {
     let alive = true;
     if (!connected) {
@@ -126,6 +129,7 @@ export function Provider({
     <AppContext.Provider
       value={{
         ...timer,
+        ...planner,
         profile,
         accountReady,
         updateProfile,

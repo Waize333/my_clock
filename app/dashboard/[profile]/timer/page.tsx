@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { formatStamp } from "@/lib/planner";
+import { snapshot } from "@/lib/timer/core";
 import {
   ArrowRight,
   Bell,
@@ -35,7 +38,13 @@ export default function TimerPage() {
       app.remaining /
         ((isBreak ? active.planned_break_min : active.planned_work_min) * 60000)
     : 0;
-  const stats = dailyStats(app.sessions, new Date(app.now));
+  const stats = dailyStats(
+    app.sessions,
+    new Date(app.now),
+    app.planner.timezone,
+    app.planner.entries,
+    app.now,
+  );
   const disabled =
     !app.ready ||
     app.readOnly ||
@@ -67,6 +76,28 @@ export default function TimerPage() {
         </div>
         <h1>Find your rhythm.</h1>
         <p>Time to focus. Space to breathe.</p>
+      </div>
+      <div className="timer-task-context">
+        {active?.task_id ? (
+          <>
+            <strong>{active.task_name}</strong>
+            <span>
+              {Math.round(
+                snapshot(active, app.now)
+                  .intervals.filter((i) => i.type === "work")
+                  .reduce((n, i) => n + i.duration_sec, 0) / 60,
+              )}{" "}
+              min this session · {active.task_target_min} min daily target
+            </span>
+            <span>
+              Started {formatStamp(active.started_at, app.planner.timezone)}
+            </span>
+          </>
+        ) : (
+          <Link href={`/dashboard/${app.profile.id}/planner`}>
+            Choose a task from your planner <ArrowRight size={13} />
+          </Link>
+        )}
       </div>
       <section className="timer-card" aria-label="Focus timer">
         <div className="timer-card-top">

@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     );
     const result = await withUser(user.id, (db) =>
       db.query(
-        `SELECT jsonb_set(s.timer_state, '{intervals}', COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.started_at, i.id) FROM cadence.intervals i WHERE i.session_id=s.id), '[]'::jsonb)) AS timer_state, s.revision FROM cadence.sessions s WHERE s.user_id=$1 ORDER BY s.started_at DESC LIMIT 500 OFFSET $2`,
+        `SELECT s.timer_state, s.revision FROM cadence.sessions s WHERE s.user_id=$1 ORDER BY s.started_at DESC LIMIT 500 OFFSET $2`,
         [user.id, offset],
       ),
     );

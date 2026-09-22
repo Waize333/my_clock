@@ -50,6 +50,8 @@ const sid = randomUUID(),
   now = new Date().toISOString();
 const timer = {
   id: sid,
+  task_id: randomUUID(),
+  task_name: "Coursework",
   started_at: now,
   ended_at: null,
   planned_work_min: 50,
@@ -70,6 +72,7 @@ const timer = {
       duration_sec: 0,
       planned_duration_sec: 3000,
       completed: false,
+      spans: [{ started_at: now, ended_at: null }],
     },
   ],
 };
@@ -123,6 +126,8 @@ assert.equal(saved.response.status, 200, JSON.stringify(saved.data));
 assert.equal(saved.data.revision, 2);
 const history = await request("/api/sessions", "GET", undefined, a.cookie);
 assert.equal(history.data.length, 1);
+assert.equal(history.data[0].timer_state.task_name, "Coursework");
+assert.equal(history.data[0].timer_state.intervals[0].spans.length, 1);
 assert.equal(history.data[0].timer_state.intervals.length, 1);
 assert.equal(history.data[0].timer_state.intervals[0].duration_sec, 2);
 const pref = await request(
@@ -141,6 +146,79 @@ const signedIn = await request("/api/auth/sign-in/email", "POST", {
   password: a.password,
 });
 assert.equal(signedIn.response.status, 200);
+// Planner data is private, revision-checked, and validated independently of timer state.
+assert.equal((await request("/api/planner")).response.status, 401);
+assert.equal(
+  (await request("/api/planner", "GET", undefined, a.cookie)).data.revision,
+  0,
+);
+const planner = {
+  version: 1,
+  timezone: "Asia/Karachi",
+  plans: {},
+  entries: [],
+  checks: {},
+  notes: {},
+};
+const firstPlan = await request(
+  "/api/planner",
+  "PUT",
+  { data: planner, revision: 0 },
+  a.cookie,
+);
+assert.equal(firstPlan.response.status, 200);
+assert.equal(firstPlan.data.revision, 1);
+assert.equal(
+  (await request("/api/planner", "GET", undefined, b.cookie)).data.data,
+  null,
+);
+assert.equal(
+  (await request("/api/planner", "GET", undefined, a.cookie)).data.data
+    .timezone,
+  "Asia/Karachi",
+);
+assert.equal(
+  (
+    await request(
+      "/api/planner",
+      "PUT",
+      { data: planner, revision: 0 },
+      a.cookie,
+    )
+  ).response.status,
+  409,
+);
+assert.equal(
+  (
+    await request(
+      "/api/planner",
+      "PUT",
+      { data: { ...planner, timezone: "Bad/Zone" }, revision: 1 },
+      a.cookie,
+    )
+  ).response.status,
+  400,
+);
+assert.equal(
+  (
+    await request(
+      "/api/planner",
+      "PUT",
+      {
+        data: { ...planner, notes: { "2026-09-21": "Saved history" } },
+        revision: 1,
+      },
+      a.cookie,
+    )
+  ).data.revision,
+  2,
+);
+const clock = await request("/api/time");
+assert.equal(clock.response.status, 200);
+assert.ok(Math.abs(clock.data.now - Date.now()) < 10000);
+console.log(
+  "PASS: planner persistence, account isolation, conflict protection, validation and server clock.",
+);
 const signedOut = await request("/api/auth/sign-out", "POST", {}, a.cookie);
 assert.equal(signedOut.response.status, 200);
 assert.equal(

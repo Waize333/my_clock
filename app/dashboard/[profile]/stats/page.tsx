@@ -66,10 +66,33 @@ export default function StatsPage() {
         ),
       ]
     : app.sessions;
-  const extra = extraStats(sessions);
-  const today = dailyStats(sessions, new Date(app.now));
-  const series = daySeries(sessions, range);
-  const heatmap = daySeries(sessions, 90);
+  const extra = extraStats(
+    sessions,
+    new Date(app.now),
+    app.planner.timezone,
+    app.planner.entries,
+  );
+  const today = dailyStats(
+    sessions,
+    new Date(app.now),
+    app.planner.timezone,
+    app.planner.entries,
+    app.now,
+  );
+  const series = daySeries(
+    sessions,
+    range,
+    new Date(app.now),
+    app.planner.timezone,
+    app.planner.entries,
+  );
+  const heatmap = daySeries(
+    sessions,
+    90,
+    new Date(app.now),
+    app.planner.timezone,
+    app.planner.entries,
+  );
   const max = Math.max(60, ...heatmap.map((d) => d.minutes));
   return (
     <div className="content-page">
@@ -92,7 +115,7 @@ export default function StatsPage() {
             label: "Completion today",
           },
           {
-            value: `${longestStreak(sessions)} days`,
+            value: `${longestStreak(sessions, app.planner.timezone)} days`,
             label: "Longest daily streak",
           },
         ].map((s) => (

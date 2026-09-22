@@ -8,9 +8,14 @@ export type Interval = {
   duration_sec: number;
   planned_duration_sec: number;
   completed: boolean;
+  spans?: { started_at: string; ended_at: string | null }[];
+  legacy_duration_sec?: number;
 };
 export type Timer = {
   id: string;
+  task_id?: string;
+  task_name?: string;
+  task_target_min?: number;
   started_at: string;
   ended_at: string | null;
   planned_work_min: number;
@@ -62,6 +67,7 @@ export function begin(
         duration_sec: 0,
         planned_duration_sec: work * 60,
         completed: false,
+        spans: [{ started_at: iso(now), ended_at: null }],
       },
     ],
   };
@@ -83,6 +89,7 @@ export function advance(
   while (now >= t.anchor + t.remainingMs) {
     const boundary = t.anchor + t.remainingMs;
     const last = t.intervals[t.intervals.length - 1];
+    closeSpan(last, boundary);
     last.ended_at = iso(boundary);
     last.completed = true;
     last.duration_sec = last.planned_duration_sec;
@@ -99,6 +106,7 @@ export function advance(
       duration_sec: 0,
       planned_duration_sec: seconds,
       completed: false,
+      spans: [{ started_at: iso(boundary), ended_at: null }],
     });
     transitions.push(phase);
   }
@@ -114,14 +122,29 @@ export function act(
   if (t.status) return t;
   const left = remaining(t, now);
   const current = t.intervals[t.intervals.length - 1];
+  if (!current.spans) {
+    current.legacy_duration_sec = Math.max(
+      0,
+      current.planned_duration_sec - t.remainingMs / 1000,
+    );
+    current.spans = t.running
+      ? [{ started_at: iso(t.anchor), ended_at: null }]
+      : [];
+  }
   current.duration_sec = Math.max(
     0,
     current.planned_duration_sec - left / 1000,
   );
-  if (action === "pause")
+  if (action === "pause") {
+    closeSpan(current, now);
     return { ...t, remainingMs: left, anchor: now, running: false };
-  if (action === "resume")
+  }
+  if (action === "resume") {
+    if (!t.running)
+      current.spans.push({ started_at: iso(now), ended_at: null });
     return { ...t, remainingMs: left, anchor: now, running: true };
+  }
+  closeSpan(current, now);
   current.ended_at = iso(now);
   if (action === "finish" || action === "reset")
     return {
@@ -144,8 +167,13 @@ export function act(
     duration_sec: 0,
     planned_duration_sec: seconds,
     completed: false,
+    spans: t.running ? [{ started_at: iso(now), ended_at: null }] : [],
   });
   return { ...t, phase, remainingMs: seconds * 1000, anchor: now };
+}
+function closeSpan(interval: Interval, now: number) {
+  const span = interval.spans?.at(-1);
+  if (span && !span.ended_at) span.ended_at = iso(now);
 }
 export function snapshot(t: Timer, now: number): Timer {
   const copy = structuredClone(t);

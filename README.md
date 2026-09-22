@@ -123,8 +123,22 @@ For simultaneous build and preview work, set a separate output directory: `CADEN
 4. Apply reviewed migrations with `npm run db:migrate` before directing traffic to the app. Do not run migrations in every preview build. Use separate Neon branches and origins for previews.
 5. Deploy, then verify two separate accounts cannot see each other's history, reload an active timer, and test profile locking.
 
-The database pool uses `@vercel/functions` pool lifecycle support. No Vercel account is connected in this workspace; the frontend has not been publicly deployed. The Neon backend setup is separate from frontend hosting.
+The database pool uses `@vercel/functions` pool lifecycle support. The production frontend is hosted at `https://myclock-navy.vercel.app`. Use that same origin for `BETTER_AUTH_URL`; deployment-specific Vercel URLs are different origins. Neon backend setup is separate from frontend hosting.
 
 ## Dependency audit
 
 Upgraded to Next.js 16.3.5 and React 19.3.0 with user approval. The installation audit reports zero vulnerabilities as of 2026-09-22. Re-run `npm audit` as part of maintenance.
+
+## Weekly planner and real-world timestamps
+
+The Planner tab connects recurring tasks to the existing timer. Add tasks with a daily focus target, weekday schedule, work/break durations, category, priority, notes, and up to 12 custom label/value fields. The optional sheet template provides the four routine names from the supplied tracker, initially scheduled Monday–Friday; review the schedule before using it. Signing in opens the planner.
+
+- Start a task to launch its work/break rhythm. Its ID, name, and daily target are saved with the session. The timer continues alternating until you finish/reset it; the daily target is a planning target, not an automatic stop.
+- Schedule versions take effect from the selected Monday. Edits affect that week and later weeks until another explicit schedule version begins. Earlier weeks remain unchanged. Archive/restore uses the same rule. Past weeks can be intentionally edited by opening them.
+- Completion checkmarks never add time. Actual work, partial resets, and manual time entries contribute to focus totals. Breaks and pauses do not. Work on off-days still counts. Manual entries should contain only work not already recorded by the timer.
+- Log time using start/end dates in the planner's selected IANA timezone. You can edit entries and weekly notes, browse historical weeks, and export a JSON backup. History lists the most recent 260 weeks; older dates are reachable with week navigation and remain in the backup.
+- Timestamps are stored in UTC. The UI defaults to the device timezone and allows an account-specific override. Newly recorded active ranges split at local midnight, including 23/25-hour daylight-saving days. Ambiguous or nonexistent manual wall-clock times are rejected with an explanation. Older sessions without active-range timestamps retain their original start-day allocation; missing historical pause timestamps cannot be reconstructed.
+- `/api/time` returns a non-cached server timestamp. The browser estimates network latency, anchors the clock to monotonic time, and refreshes every minute and on return to the tab. A disconnected client shows a clock-estimate label and resynchronizes when online. This is ordinary server-time synchronization, not an atomic-clock accuracy guarantee.
+- Signed-in planners are stored in `cadence.planners` behind row-level security, authenticated routes, and optimistic revision checks. Conflicting or failed saves are shown explicitly, with editor drafts retained for retry. Timer changes continue to use the existing browser outbox. Local preview stores its planner in this browser only and never writes account data.
+
+Migration `003_planner.sql` adds the private planner document table; apply it before serving this version. Timer active-range metadata stays inside the existing JSON timer state. Tests cover timezones, DST, pauses, partial resets, history preservation, planner validation, account isolation, revision conflicts, and metadata persistence.

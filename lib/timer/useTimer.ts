@@ -10,6 +10,8 @@ import {
   type Phase,
 } from "./core";
 import { api } from "@/lib/api";
+import { useClock } from "@/lib/useClock";
+import type { Task } from "@/lib/planner";
 const uuid = () => crypto.randomUUID();
 type Cache = {
   sessions: Timer[];
@@ -47,6 +49,7 @@ function signal(phase: Phase) {
     });
 }
 export function useTimer(owner: string | null) {
+  const { clockNow, clockReady, clockSynced } = useClock();
   const [sessions, setSessions] = useState<Timer[]>([]);
   const cache = useRef<Cache>({ sessions: [], revisions: {}, pending: {} });
   const [ready, setReady] = useState(false);
@@ -85,7 +88,7 @@ export function useTimer(owner: string | null) {
         const result = await api<{ revision: number }>("/api/sessions", {
           method: "POST",
           body: JSON.stringify({
-            timer: snapshot(timer, Date.now()),
+            timer: snapshot(timer, clockNow()),
             expectedRevision,
           }),
         });
@@ -112,7 +115,7 @@ export function useTimer(owner: string | null) {
     } finally {
       syncing.current = false;
     }
-  }, [owner, persist]);
+  }, [owner, persist, clockNow]);
   const save = useCallback(
     (timer: Timer) => {
       cache.current.sessions = [
@@ -138,7 +141,7 @@ export function useTimer(owner: string | null) {
     if (!owner) return;
     let disposed = false;
     let release: (() => void) | undefined;
-    async function load() {
+    async function load(viewOnly = false) {
       try {
         const stored = JSON.parse(
           localStorage.getItem(`cadence:cache:${owner}`) || "null",
@@ -205,7 +208,7 @@ export function useTimer(owner: string | null) {
       setSessions(cache.current.sessions);
       setReady(true);
       persist();
-      void flush();
+      if (!viewOnly) void flush();
     }
     if (navigator.locks)
       void navigator.locks.request(
@@ -216,8 +219,9 @@ export function useTimer(owner: string | null) {
           if (!lock) {
             setReadOnly(true);
             setError(
-              "Timer is open in another tab. Close that tab and reload here to continue.",
+              "Timer is open in another tab. You can view your planner here; close the other tab and reload to control the timer.",
             );
+            void load(true);
             return;
           }
           void load();
@@ -233,10 +237,11 @@ export function useTimer(owner: string | null) {
     };
   }, [owner, persist, flush]);
   useEffect(() => {
-    if (!ready || readOnly) return;
+    if (!clockReady) return;
     const tick = () => {
-      const time = Date.now();
+      const time = clockNow();
       setNow(time);
+      if (!ready || readOnly) return;
       const active = cache.current.sessions.find((s) => !s.status);
       if (!active?.running) return;
       const result = advance(active, time, uuid);
@@ -258,7 +263,7 @@ export function useTimer(owner: string | null) {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [ready, readOnly, save]);
+  }, [ready, readOnly, save, clockNow, clockReady]);
   useEffect(() => {
     const retry = () => {
       void flush();
@@ -279,7 +284,8 @@ export function useTimer(owner: string | null) {
   return {
     sessions,
     active,
-    ready,
+    ready: ready && clockReady,
+    clockSynced,
     now,
     notice,
     error,
@@ -309,14 +315,27 @@ export function useTimer(owner: string | null) {
       }
     },
     remaining: active ? remaining(active, now) : 0,
-    start: (work: number, rest: number) => {
-      if (ready && !readOnly && !cache.current.sessions.some((s) => !s.status))
-        save(begin(work, rest, Date.now(), uuid));
+    start: (work: number, rest: number, task?: Task) => {
+      if (
+        !ready ||
+        !clockReady ||
+        readOnly ||
+        cache.current.sessions.some((s) => !s.status)
+      )
+        return false;
+      const timer = begin(work, rest, clockNow(), uuid);
+      if (task) {
+        timer.task_id = task.id;
+        timer.task_name = task.name;
+        timer.task_target_min = task.targetMin;
+      }
+      save(timer);
+      return true;
     },
     action: (action: Parameters<typeof act>[1]) => {
       const timer = cache.current.sessions.find((s) => !s.status);
       if (timer && !readOnly) {
-        const next = act(timer, action, Date.now(), uuid);
+        const next = act(timer, action, clockNow(), uuid);
         save(next);
         if (action === "skip") {
           signal(next.phase);
