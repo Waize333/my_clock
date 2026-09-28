@@ -12,8 +12,10 @@ import {
 import { api } from "@/lib/api";
 import { useClock } from "@/lib/useClock";
 import type { Task } from "@/lib/planner";
+import { pauseAfterInterruption, type Heartbeat } from "./suspension";
 const uuid = () => crypto.randomUUID();
 type Cache = {
+  heartbeat?: Heartbeat;
   sessions: Timer[];
   revisions: Record<string, number>;
   pending: Record<string, Timer>;
@@ -118,6 +120,11 @@ export function useTimer(owner: string | null) {
   }, [owner, persist, clockNow]);
   const save = useCallback(
     (timer: Timer) => {
+      cache.current.heartbeat = {
+        sessionId: timer.id,
+        at: clockNow(),
+        wall: Date.now(),
+      };
       cache.current.sessions = [
         timer,
         ...cache.current.sessions.filter((s) => s.id !== timer.id),
@@ -127,7 +134,7 @@ export function useTimer(owner: string | null) {
       persist();
       void flush();
     },
-    [owner, persist, flush],
+    [owner, persist, flush, clockNow],
   );
   useEffect(() => {
     epoch.current++;
@@ -205,6 +212,26 @@ export function useTimer(owner: string | null) {
         }
       }
       if (disposed) return;
+      if (!viewOnly && !conflict.current) {
+        const active = cache.current.sessions.find((s) => !s.status);
+        if (active?.running) {
+          const recovered = pauseAfterInterruption(
+            active,
+            cache.current.heartbeat,
+            Date.now(),
+            uuid,
+          );
+          if (recovered !== active) {
+            cache.current.sessions = cache.current.sessions.map((s) =>
+              s.id === active.id ? recovered : s,
+            );
+            if (owner !== "local") cache.current.pending[active.id] = recovered;
+            setNotice(
+              "Timer paused after an interruption. Resume when you’re ready.",
+            );
+          }
+        }
+      }
       setSessions(cache.current.sessions);
       setReady(true);
       persist();
@@ -238,6 +265,7 @@ export function useTimer(owner: string | null) {
   }, [owner, persist, flush]);
   useEffect(() => {
     if (!clockReady) return;
+    let lastPersist = 0;
     const tick = () => {
       const time = clockNow();
       setNow((previous) =>
@@ -248,6 +276,28 @@ export function useTimer(owner: string | null) {
       if (!ready || readOnly) return;
       const active = cache.current.sessions.find((s) => !s.status);
       if (!active?.running) return;
+      const recovered = pauseAfterInterruption(
+        active,
+        cache.current.heartbeat,
+        Date.now(),
+        uuid,
+      );
+      if (recovered !== active) {
+        save(recovered);
+        setNotice(
+          "Timer paused after an interruption. Resume when you’re ready.",
+        );
+        return;
+      }
+      cache.current.heartbeat = {
+        sessionId: active.id,
+        at: time,
+        wall: Date.now(),
+      };
+      if (Date.now() - lastPersist >= 5000) {
+        persist();
+        lastPersist = Date.now();
+      }
       if (time < active.anchor + active.remainingMs) return;
       const result = advance(active, time, uuid);
       if (result.transitions.length) {
@@ -261,14 +311,35 @@ export function useTimer(owner: string | null) {
         signal(phase);
       }
     };
+    const pauseOnExit = () => {
+      if (!ready || readOnly) return;
+      const active = cache.current.sessions.find((s) => !s.status);
+      if (active?.running) {
+        const recovered = pauseAfterInterruption(
+          active,
+          cache.current.heartbeat,
+          Date.now(),
+          uuid,
+        );
+        save(
+          recovered === active
+            ? act(active, "pause", clockNow(), uuid)
+            : recovered,
+        );
+      }
+    };
+    window.addEventListener("pagehide", pauseOnExit);
+    document.addEventListener("freeze", pauseOnExit);
     tick();
     const timer = setInterval(tick, 250);
     document.addEventListener("visibilitychange", tick);
     return () => {
       clearInterval(timer);
+      window.removeEventListener("pagehide", pauseOnExit);
+      document.removeEventListener("freeze", pauseOnExit);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [ready, readOnly, save, clockNow, clockReady]);
+  }, [ready, readOnly, save, clockNow, clockReady, persist]);
   useEffect(() => {
     const retry = () => {
       void flush();
@@ -296,6 +367,34 @@ export function useTimer(owner: string | null) {
     error,
     readOnly,
     hasConflict,
+    pauseAndSync: async () => {
+      if (readOnly)
+        throw new Error(
+          "Close the other timer tab and resolve any sync conflict before switching profiles.",
+        );
+      const active = cache.current.sessions.find((s) => !s.status);
+      if (active?.running) {
+        const recovered = pauseAfterInterruption(
+          active,
+          cache.current.heartbeat,
+          Date.now(),
+          uuid,
+        );
+        save(
+          recovered === active
+            ? act(active, "pause", clockNow(), uuid)
+            : recovered,
+        );
+      }
+      const deadline = Date.now() + 32000;
+      await flush();
+      while (syncing.current && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      if (Object.keys(cache.current.pending).length)
+        throw new Error(
+          "Your timer is paused on this device. Reconnect and try again to save it before logging out.",
+        );
+    },
     exportBackup: () => {
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(cache.current, null, 2)], {
@@ -340,7 +439,13 @@ export function useTimer(owner: string | null) {
     action: (action: Parameters<typeof act>[1]) => {
       const timer = cache.current.sessions.find((s) => !s.status);
       if (timer && !readOnly) {
-        const next = act(timer, action, clockNow(), uuid);
+        const recovered = pauseAfterInterruption(
+          timer,
+          cache.current.heartbeat,
+          Date.now(),
+          uuid,
+        );
+        const next = act(recovered, action, clockNow(), uuid);
         save(next);
         if (action === "skip") {
           signal(next.phase);

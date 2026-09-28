@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -19,6 +20,31 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const app = useApp();
   const router = useRouter();
   const pathname = usePathname();
+  const [leaving, setLeaving] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+  async function leave(destination = "/") {
+    if (leaving) return;
+    setLeaving(true);
+    setLogoutError("");
+    try {
+      await app.pauseAndSync();
+      if (app.connected) {
+        const result = await authClient.signOut();
+        if (result.error)
+          throw new Error("Could not log out. Please try again.");
+        clearPrivateCache();
+      }
+      router.replace(destination);
+      router.refresh();
+    } catch (error) {
+      setLogoutError(
+        error instanceof Error
+          ? error.message
+          : "Could not log out. Please try again.",
+      );
+      setLeaving(false);
+    }
+  }
   const base = `/dashboard/${app.profile.id}`;
   return (
     <div className="app-shell">
@@ -26,7 +52,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
         Skip to main content
       </a>
       <header className="header">
-        <Link href="/" className="brand" aria-label="Cadence home">
+        <Link
+          href="/"
+          className="brand"
+          aria-label="Cadence home"
+          onClick={(event) => {
+            event.preventDefault();
+            void leave();
+          }}
+        >
           <Waves size={26} strokeWidth={1.8} />
           <span>
             cadence<span className="brand-dot">.</span>
@@ -67,15 +101,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
               className="icon-button"
               aria-label="Lock and switch profile"
               title="Lock and switch profile"
-              onClick={() => {
-                void authClient.signOut().then(({ error }) => {
-                  if (!error) {
-                    clearPrivateCache();
-                    router.replace("/");
-                    router.refresh();
-                  }
-                });
-              }}
+              disabled={leaving}
+              onClick={() => void leave()}
             >
               <LogOut size={18} />
             </button>
@@ -86,10 +113,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {!app.connected && (
           <aside className="preview-notice">
             Local preview · saved only in this browser.{" "}
-            <Link href="/login">
+            <Link
+              href="/login"
+              onClick={(event) => {
+                event.preventDefault();
+                void leave("/login");
+              }}
+            >
               Sign in to sync across devices <ArrowUpRight size={13} />
             </Link>
           </aside>
+        )}
+        {logoutError && (
+          <p role="alert" className="error-banner">
+            {logoutError}
+          </p>
         )}
         {app.accountError && (
           <div className="error-banner" role="alert">
