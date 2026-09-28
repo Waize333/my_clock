@@ -1,19 +1,32 @@
 import { act, type Timer } from "./core";
 
-// Background tabs can be throttled to one tick per minute. A longer gap
-// indicates suspension; do not invent work/break cycles during that gap.
+// A callback gap alone cannot distinguish minimized tabs from sleep.
+// Compare clocks within the same document; use a conservative fallback on restore.
 export const SUSPENSION_GAP_MS = 90_000;
-export type Heartbeat = { sessionId: string; at: number; wall: number };
+export type Heartbeat = {
+  sessionId: string;
+  at: number;
+  wall: number;
+  mono?: number;
+};
 export function pauseAfterInterruption(
   timer: Timer,
   heartbeat: Heartbeat | undefined,
   wall: number,
   id: () => string,
+  mono?: number,
 ): Timer {
   if (!timer.running || timer.status) return timer;
   const known = heartbeat?.sessionId === timer.id ? heartbeat : undefined;
-  if (known && wall - known.wall <= SUSPENSION_GAP_MS && wall >= known.wall)
-    return timer;
+  if (known) {
+    const wallGap = wall - known.wall;
+    if (mono !== undefined && known.mono !== undefined) {
+      // On supported platforms the monotonic clock stops during OS sleep,
+      // but keeps advancing when callbacks are throttled in the background.
+      const clockStopped = wallGap - (mono - known.mono) > 5000;
+      if (!clockStopped && wallGap >= 0) return timer;
+    } else if (wallGap <= SUSPENSION_GAP_MS && wallGap >= 0) return timer;
+  }
   return act(
     timer,
     "pause",

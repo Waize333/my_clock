@@ -124,6 +124,7 @@ export function useTimer(owner: string | null) {
         sessionId: timer.id,
         at: clockNow(),
         wall: Date.now(),
+        mono: performance.now(),
       };
       cache.current.sessions = [
         timer,
@@ -232,6 +233,10 @@ export function useTimer(owner: string | null) {
           }
         }
       }
+      if (cache.current.heartbeat) {
+        const beat = cache.current.heartbeat;
+        beat.mono = performance.now() - Math.max(0, Date.now() - beat.wall);
+      }
       setSessions(cache.current.sessions);
       setReady(true);
       persist();
@@ -281,6 +286,7 @@ export function useTimer(owner: string | null) {
         cache.current.heartbeat,
         Date.now(),
         uuid,
+        performance.now(),
       );
       if (recovered !== active) {
         save(recovered);
@@ -293,6 +299,7 @@ export function useTimer(owner: string | null) {
         sessionId: active.id,
         at: time,
         wall: Date.now(),
+        mono: performance.now(),
       };
       if (Date.now() - lastPersist >= 5000) {
         persist();
@@ -320,6 +327,7 @@ export function useTimer(owner: string | null) {
           cache.current.heartbeat,
           Date.now(),
           uuid,
+          performance.now(),
         );
         save(
           recovered === active
@@ -329,14 +337,12 @@ export function useTimer(owner: string | null) {
       }
     };
     window.addEventListener("pagehide", pauseOnExit);
-    document.addEventListener("freeze", pauseOnExit);
     tick();
     const timer = setInterval(tick, 250);
     document.addEventListener("visibilitychange", tick);
     return () => {
       clearInterval(timer);
       window.removeEventListener("pagehide", pauseOnExit);
-      document.removeEventListener("freeze", pauseOnExit);
       document.removeEventListener("visibilitychange", tick);
     };
   }, [ready, readOnly, save, clockNow, clockReady, persist]);
@@ -379,6 +385,7 @@ export function useTimer(owner: string | null) {
           cache.current.heartbeat,
           Date.now(),
           uuid,
+          performance.now(),
         );
         save(
           recovered === active
@@ -444,6 +451,7 @@ export function useTimer(owner: string | null) {
           cache.current.heartbeat,
           Date.now(),
           uuid,
+          performance.now(),
         );
         const next = act(recovered, action, clockNow(), uuid);
         save(next);

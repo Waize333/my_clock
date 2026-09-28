@@ -70,3 +70,33 @@ test("paused sessions remain unchanged after sleep", () => {
     paused,
   );
 });
+
+test("minimized or frozen browser callbacks catch up without pausing", () => {
+  const timer = begin(25, 5, start, randomUUID);
+  const beat = { sessionId: timer.id, at: start, wall: start, mono: 1000 };
+  for (const gap of [60000, 300000, 3600000]) {
+    assert.equal(
+      pauseAfterInterruption(timer, beat, start + gap, randomUUID, 1000 + gap),
+      timer,
+    );
+  }
+});
+
+test("sleep with a stopped monotonic clock still pauses while minimized", () => {
+  const timer = begin(25, 5, start, randomUUID);
+  const beat = {
+    sessionId: timer.id,
+    at: start + 60000,
+    wall: start + 60000,
+    mono: 61000,
+  };
+  const paused = pauseAfterInterruption(
+    timer,
+    beat,
+    start + 3600000,
+    randomUUID,
+    62000,
+  );
+  assert.equal(paused.running, false);
+  assert.equal(paused.intervals[0].duration_sec, 60);
+});

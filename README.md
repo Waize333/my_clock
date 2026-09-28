@@ -142,3 +142,9 @@ The Planner tab connects recurring tasks to the existing timer. Add tasks with a
 - Signed-in planners are stored in `cadence.planners` behind row-level security, authenticated routes, and optimistic revision checks. Conflicting or failed saves are shown explicitly, with editor drafts retained for retry. Timer changes continue to use the existing browser outbox. Local preview stores its planner in this browser only and never writes account data.
 
 Migration `003_planner.sql` adds the private planner document table; apply it before serving this version. Timer active-range metadata stays inside the existing JSON timer state. Tests cover timezones, DST, pauses, partial resets, history preservation, planner validation, account isolation, revision conflicts, and metadata persistence.
+
+## Background timers and sleep
+
+Minimizing the browser or switching tabs keeps the timer running. Delayed background callbacks catch up from elapsed timestamps and do not themselves pause the session. App logout pauses and synchronizes before clearing account data; leaving the page pauses locally, with pending updates restored on return.
+
+Sleep detection compares wall time with the monotonic clock within the same document. On platforms where the monotonic clock stops during sleep, the timer pauses at the last heartbeat. Browsers whose monotonic clock continues through sleep (notably Windows browsers) cannot reliably distinguish sleep from background throttling, so minimizing takes priority and sleep auto-pause is best effort. Restoring an old running session without a recent heartbeat pauses conservatively. See [MDN: ticking during sleep](https://developer.mozilla.org/en-US/docs/Web/API/Performance/now#ticking_during_sleep).
