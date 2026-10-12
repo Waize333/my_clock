@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -13,6 +13,7 @@ import {
   Waves,
   LogOut,
 } from "lucide-react";
+import { reminderText } from "@/lib/timer/reminders";
 import { useApp } from "./provider";
 import { clearPrivateCache } from "@/lib/profiles";
 import { authClient } from "@/lib/auth/client";
@@ -45,6 +46,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
       setLeaving(false);
     }
   }
+  const reminderDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (app.reminder) reminderDialog.current?.showModal();
+    else reminderDialog.current?.close();
+  }, [app.reminder]);
   const base = `/dashboard/${app.profile.id}`;
   return (
     <div className="app-shell">
@@ -160,6 +166,58 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <ArrowUpRight size={13} />
         </span>
       </footer>
+      <dialog
+        ref={reminderDialog}
+        className="reminder-dialog"
+        aria-labelledby="reminder-heading"
+        onCancel={(event) => {
+          event.preventDefault();
+          app.dismissReminder();
+        }}
+      >
+        <span className="eyebrow">YOUR RHYTHM</span>
+        <h2 id="reminder-heading">
+          {app.reminder
+            ? reminderText(app.reminder).title
+            : "Interval complete"}
+        </h2>
+        <p>{app.reminder ? reminderText(app.reminder).body : ""}</p>
+        <div className="reminder-actions">
+          <button className="primary-button" onClick={app.dismissReminder}>
+            Got it
+          </button>
+          {app.active?.running && (
+            <button
+              className="secondary-button"
+              onClick={() => {
+                app.action("pause");
+                app.dismissReminder();
+              }}
+            >
+              Pause timer
+            </button>
+          )}
+        </div>
+      </dialog>
+      {app.connected && (
+        <div className="progress-sync" aria-label="Progress sync status">
+          <span>
+            {app.syncStatus}
+            {app.lastSynced
+              ? ` · ${new Date(app.lastSynced).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </span>
+          <button
+            className="text-button"
+            onClick={() => {
+              void app.refreshProgress();
+              window.dispatchEvent(new Event("cadence:refresh-planner"));
+            }}
+          >
+            Sync now
+          </button>
+        </div>
+      )}
       {app.notice && (
         <div className="toast" role="status">
           <span className="status-dot" />

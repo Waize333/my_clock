@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -18,64 +18,10 @@ import {
   longestStreak,
   extraStats,
 } from "@/lib/stats";
-import { api } from "@/lib/api";
-import type { Timer } from "@/lib/timer/core";
 export default function StatsPage() {
   const app = useApp();
   const [range, setRange] = useState(7);
-  const [remote, setRemote] = useState<Timer[] | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    if (!app.connected || app.profile.id === "local") return;
-    let cancelled = false,
-      inFlight = false;
-    const refresh = async () => {
-      if (inFlight || document.hidden) return;
-      inFlight = true;
-      try {
-        const all: Timer[] = [];
-        for (let offset = 0; ; offset += 500) {
-          const data = await api<{ timer_state: Timer }[]>(
-            `/api/sessions?offset=${offset}`,
-          );
-          if (cancelled) return;
-          all.push(...data.map((row) => row.timer_state));
-          if (data.length < 500) break;
-        }
-        if (!cancelled) {
-          setRemote(all);
-          setError("");
-        }
-      } catch {
-        if (!cancelled)
-          setError(
-            "Insights could not refresh. Your last loaded data is shown.",
-          );
-      } finally {
-        inFlight = false;
-      }
-    };
-    if (app.readOnly) void refresh();
-    const interval = setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 60000);
-    const visible = () => {
-      if (!document.hidden) void refresh();
-    };
-    document.addEventListener("visibilitychange", visible);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", visible);
-    };
-  }, [app.profile.id, app.connected, app.readOnly]);
-  const sessions = useMemo(() => {
-    if (!remote) return app.sessions;
-    const combined = new Map(remote.map((s) => [s.id, s]));
-    for (const s of app.sessions)
-      if (!app.readOnly || !combined.has(s.id)) combined.set(s.id, s);
-    return [...combined.values()];
-  }, [remote, app.sessions, app.readOnly]);
+  const sessions = app.sessions;
   const analysisNow =
     Math.floor(app.now / (app.active?.running ? 1000 : 60000)) *
     (app.active?.running ? 1000 : 60000);
@@ -100,11 +46,6 @@ export default function StatsPage() {
       <p className="page-description">
         Small moments of focus add up. Here’s your rhythm.
       </p>
-      {error && (
-        <p role="alert" className="error-banner">
-          {error}
-        </p>
-      )}
       <div className="stats-grid">
         {[
           { value: `${today.minutes} min`, label: "Focus today" },

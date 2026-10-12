@@ -458,7 +458,13 @@ export default function PlannerPage() {
     [message, setMessage] = useState(""),
     [zone, setZone] = useState(""),
     [archived, setArchived] = useState(false),
-    [activityLimit, setActivityLimit] = useState(20);
+    [activityLimit, setActivityLimit] = useState(20),
+    [noteDirty, setNoteDirty] = useState(false);
+  const { setPlannerEditing } = app;
+  useEffect(() => {
+    setPlannerEditing(Boolean(editTask || logEditor || noteDirty));
+    return () => setPlannerEditing(false);
+  }, [editTask, logEditor, noteDirty, setPlannerEditing]);
   const week = chosenWeek || currentWeek,
     tasks = tasksForWeek(p, week),
     visible = tasks.filter((t) => archived || !t.archived),
@@ -475,6 +481,7 @@ export default function PlannerPage() {
   );
   useEffect(() => {
     setActivityLimit(20);
+    setNoteDirty(false);
   }, [week]);
   useEffect(() => {
     setZone(p.timezone);
@@ -1118,16 +1125,18 @@ export default function PlannerPage() {
                       const text = String(
                         new FormData(e.currentTarget).get("note") || "",
                       );
-                      void run(() =>
-                        app.savePlanner({
+                      void run(async () => {
+                        await app.savePlanner({
                           ...p,
                           notes: { ...p.notes, [week]: text },
-                        }),
-                      );
+                        });
+                        setNoteDirty(false);
+                      });
                     }}
                   >
                     <textarea
                       name="note"
+                      onChange={() => setNoteDirty(true)}
                       rows={4}
                       maxLength={2000}
                       defaultValue={p.notes[week] || ""}

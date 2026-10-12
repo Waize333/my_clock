@@ -1,10 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Check, Monitor, Moon, Sun } from "lucide-react";
+import { enableNotifications } from "@/lib/timer/reminders";
 import { useApp, type Profile } from "@/components/provider";
 export default function SettingsPage() {
   const app = useApp();
   const [values, setValues] = useState(app.profile);
+  const [reminders, setReminders] = useState(app.deviceSettings.reminders);
+  useEffect(
+    () => setReminders(app.deviceSettings.reminders),
+    [app.deviceSettings.reminders],
+  );
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => setValues(app.profile), [app.profile]);
@@ -14,7 +20,10 @@ export default function SettingsPage() {
     setMessage("");
     try {
       await app.updateProfile(values);
-      setMessage("Your preferences have been saved.");
+      app.updateDeviceSettings({ reminders });
+      setMessage(
+        "Your account name and this device’s preferences have been saved.",
+      );
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : "Could not save preferences.",
@@ -68,7 +77,8 @@ export default function SettingsPage() {
         <section className="panel">
           <h2>Your default session</h2>
           <p className="section-copy">
-            Start here. Adjust for the day whenever you need.
+            Saved only on this device. Other devices can use different
+            durations.
           </p>
           <div className="form-grid">
             <label>
@@ -108,7 +118,8 @@ export default function SettingsPage() {
         <section className="panel">
           <h2>Appearance</h2>
           <p className="section-copy">
-            Give your eyes a comfortable place to settle.
+            Choose a theme for this device. Your other devices keep their own
+            theme.
           </p>
           <div className="theme-options">
             {[
@@ -134,6 +145,98 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </section>
+        <section className="panel">
+          <h2>Reminders on this device</h2>
+          <p className="section-copy">
+            Choose how you’re reminded when work ends and when your break ends.
+            Keep Cadence open; browsers can delay alerts when suspended.
+          </p>
+          <div className="reminder-options">
+            {(
+              [
+                { key: "sound", label: "Play a sound" },
+                { key: "popup", label: "Show an in-app popup" },
+                { key: "vibration", label: "Vibrate (supported phones)" },
+                { key: "notifications", label: "Show browser notifications" },
+              ] as const
+            ).map(({ key, label }) => (
+              <label key={key}>
+                <input
+                  type="checkbox"
+                  checked={reminders[key]}
+                  onChange={(event) =>
+                    setReminders({ ...reminders, [key]: event.target.checked })
+                  }
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+          <label className="reminder-volume">
+            Sound volume · {Math.round(reminders.volume * 100)}%
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={reminders.volume}
+              onChange={(event) =>
+                setReminders({
+                  ...reminders,
+                  volume: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+          <div className="reminder-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                app.testReminder("break", reminders);
+              }}
+            >
+              Test work-end reminder
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => app.testReminder("work", reminders)}
+            >
+              Test break-end reminder
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                void enableNotifications()
+                  .then((message) => {
+                    setMessage(message);
+                    if (
+                      "Notification" in window &&
+                      Notification.permission === "granted"
+                    )
+                      setReminders((previous) => ({
+                        ...previous,
+                        notifications: true,
+                      }));
+                  })
+                  .catch(() =>
+                    setMessage(
+                      "Could not enable notifications. Please try again.",
+                    ),
+                  );
+              }}
+            >
+              Allow browser notifications
+            </button>
+          </div>
+          <p className="section-copy">
+            Vibration and browser notifications depend on your browser, device
+            permissions, and system settings. In-app popups work while Cadence
+            is open.
+          </p>
         </section>
         <div className="save-row">
           <p role="status">{message}</p>

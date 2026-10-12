@@ -1,18 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  act,
-  advance,
-  begin,
-  remaining,
-  snapshot,
-  type Timer,
-  type Phase,
-} from "./core";
+import { act, advance, begin, remaining, snapshot, type Timer } from "./core";
 import { api } from "@/lib/api";
 import { useClock } from "@/lib/useClock";
 import type { Task } from "@/lib/planner";
 import { pauseAfterInterruption, type Heartbeat } from "./suspension";
+import type { Reminders } from "../device-settings";
+import { useReminders } from "./reminders";
+import { mergeSessionUpdates, type SessionRow } from "./sync";
 const uuid = () => crypto.randomUUID();
 type Cache = {
   heartbeat?: Heartbeat;
@@ -20,37 +15,23 @@ type Cache = {
   revisions: Record<string, number>;
   pending: Record<string, Timer>;
 };
-function signal(phase: Phase) {
-  try {
-    const context = new AudioContext();
-    const osc = context.createOscillator();
-    const gain = context.createGain();
-    osc.frequency.value = phase === "break" ? 528 : 660;
-    gain.gain.setValueAtTime(0, context.currentTime);
-    gain.gain.linearRampToValueAtTime(0.12, context.currentTime + 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.7);
-    osc.connect(gain);
-    gain.connect(context.destination);
-    osc.start();
-    osc.stop(context.currentTime + 0.8);
-    osc.onended = () => {
-      void context.close();
-    };
-  } catch {}
-  if (
-    (document.hidden || !document.hasFocus()) &&
-    "Notification" in window &&
-    Notification.permission === "granted"
-  )
-    new Notification(phase === "break" ? "Break time" : "Back to work", {
-      body:
-        phase === "break"
-          ? "Step away. Take a breath."
-          : "A little space for your next focus.",
-      tag: "cadence-transition",
-    });
-}
-export function useTimer(owner: string | null) {
+export function useTimer(
+  owner: string | null,
+  deviceId: string | null,
+  reminders: Reminders,
+) {
+  const alerts = useReminders(reminders);
+  const { signal, arm } = alerts;
+  const legacyIds = useRef(new Set<string>());
+  const [legacySessions, setLegacySessions] = useState<string[]>([]);
+  const owns = useCallback(
+    (s: Timer) =>
+      s.device_id === deviceId || (!s.device_id && legacyIds.current.has(s.id)),
+    [deviceId],
+  );
+  const [syncStatus, setSyncStatus] = useState("Loading saved progress…");
+  const [lastSynced, setLastSynced] = useState<number | null>(null);
+  const pulling = useRef(false);
   const { clockNow, clockReady, clockSynced } = useClock();
   const [sessions, setSessions] = useState<Timer[]>([]);
   const cache = useRef<Cache>({ sessions: [], revisions: {}, pending: {} });
@@ -61,13 +42,15 @@ export function useTimer(owner: string | null) {
   const [readOnly, setReadOnly] = useState(false);
   const [hasConflict, setHasConflict] = useState(false);
   const syncing = useRef(false);
+  const writeAccess = useRef(true);
   const epoch = useRef(0);
   const conflict = useRef(false);
   const persist = useCallback(() => {
+    if (!writeAccess.current) return;
     try {
       localStorage.setItem(
         `cadence:cache:${owner}`,
-        JSON.stringify(cache.current),
+        JSON.stringify({ ...cache.current, legacyIds: [...legacyIds.current] }),
       );
     } catch {
       setError(
@@ -76,7 +59,13 @@ export function useTimer(owner: string | null) {
     }
   }, [owner]);
   const flush = useCallback(async () => {
-    if (!owner || owner === "local" || syncing.current || conflict.current)
+    if (
+      !owner ||
+      owner === "local" ||
+      syncing.current ||
+      conflict.current ||
+      !writeAccess.current
+    )
       return;
     syncing.current = true;
     const generation = epoch.current;
@@ -139,6 +128,8 @@ export function useTimer(owner: string | null) {
   );
   useEffect(() => {
     epoch.current++;
+    writeAccess.current = true;
+    legacyIds.current = new Set();
     conflict.current = false;
     setHasConflict(false);
     setReady(false);
@@ -146,19 +137,28 @@ export function useTimer(owner: string | null) {
     setError("");
     cache.current = { sessions: [], revisions: {}, pending: {} };
     setSessions([]);
-    if (!owner) return;
+    if (!owner || !deviceId) return;
     let disposed = false;
     let release: (() => void) | undefined;
     async function load(viewOnly = false) {
+      let loadedFromServer = owner === "local";
       try {
         const stored = JSON.parse(
           localStorage.getItem(`cadence:cache:${owner}`) || "null",
         );
-        if (stored?.sessions && stored?.revisions && stored?.pending)
+        if (stored?.sessions && stored?.revisions && stored?.pending) {
           cache.current = stored;
+          legacyIds.current = new Set<string>(
+            stored.legacyIds ??
+              stored.sessions
+                .filter((s: Timer) => !s.device_id)
+                .map((s: Timer) => s.id),
+          );
+        }
       } catch {
         setError("Could not restore browser storage.");
       }
+      if (viewOnly) cache.current.pending = {};
       if (owner !== "local") {
         try {
           const remote: Timer[] = [];
@@ -174,6 +174,7 @@ export function useTimer(owner: string | null) {
             }
             if (data.length < 500) break;
           }
+          loadedFromServer = true;
           const pending = cache.current.pending;
           for (const timer of Object.values(pending)) {
             if (
@@ -214,7 +215,7 @@ export function useTimer(owner: string | null) {
       }
       if (disposed) return;
       if (!viewOnly && !conflict.current) {
-        const active = cache.current.sessions.find((s) => !s.status);
+        const active = cache.current.sessions.find((s) => !s.status && owns(s));
         if (active?.running) {
           const recovered = pauseAfterInterruption(
             active,
@@ -237,8 +238,17 @@ export function useTimer(owner: string | null) {
         const beat = cache.current.heartbeat;
         beat.mono = performance.now() - Math.max(0, Date.now() - beat.wall);
       }
+      setLegacySessions([...legacyIds.current]);
       setSessions(cache.current.sessions);
       setReady(true);
+      setSyncStatus(
+        owner === "local"
+          ? "Saved in this browser"
+          : loadedFromServer
+            ? "Progress synced"
+            : "Offline browser copy",
+      );
+      if (loadedFromServer) setLastSynced(Date.now());
       persist();
       if (!viewOnly) void flush();
     }
@@ -249,6 +259,7 @@ export function useTimer(owner: string | null) {
         async (lock) => {
           if (disposed) return;
           if (!lock) {
+            writeAccess.current = false;
             setReadOnly(true);
             setError(
               "Timer is open in another tab. You can view your planner here; close the other tab and reload to control the timer.",
@@ -267,7 +278,7 @@ export function useTimer(owner: string | null) {
       disposed = true;
       release?.();
     };
-  }, [owner, persist, flush]);
+  }, [owner, deviceId, owns, persist, flush]);
   useEffect(() => {
     if (!clockReady) return;
     let lastPersist = 0;
@@ -279,7 +290,7 @@ export function useTimer(owner: string | null) {
           : time,
       );
       if (!ready || readOnly) return;
-      const active = cache.current.sessions.find((s) => !s.status);
+      const active = cache.current.sessions.find((s) => !s.status && owns(s));
       if (!active?.running) return;
       const recovered = pauseAfterInterruption(
         active,
@@ -320,7 +331,7 @@ export function useTimer(owner: string | null) {
     };
     const pauseOnExit = () => {
       if (!ready || readOnly) return;
-      const active = cache.current.sessions.find((s) => !s.status);
+      const active = cache.current.sessions.find((s) => !s.status && owns(s));
       if (active?.running) {
         const recovered = pauseAfterInterruption(
           active,
@@ -345,7 +356,7 @@ export function useTimer(owner: string | null) {
       window.removeEventListener("pagehide", pauseOnExit);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [ready, readOnly, save, clockNow, clockReady, persist]);
+  }, [ready, readOnly, save, clockNow, clockReady, persist, owns, signal]);
   useEffect(() => {
     const retry = () => {
       void flush();
@@ -357,12 +368,85 @@ export function useTimer(owner: string | null) {
       window.removeEventListener("online", retry);
     };
   }, [flush]);
+  const refreshProgress = useCallback(async () => {
+    if (
+      !owner ||
+      owner === "local" ||
+      !ready ||
+      pulling.current ||
+      syncing.current ||
+      conflict.current
+    )
+      return;
+    pulling.current = true;
+    const generation = epoch.current;
+    try {
+      await flush();
+      if (Object.keys(cache.current.pending).length) {
+        setSyncStatus("Offline changes waiting to sync");
+        return;
+      }
+      const rows = await api<SessionRow[]>("/api/sync", {
+        method: "POST",
+        body: JSON.stringify({ revisions: cache.current.revisions }),
+      });
+      if (
+        generation !== epoch.current ||
+        syncing.current ||
+        Object.keys(cache.current.pending).length
+      )
+        return;
+      const merged = mergeSessionUpdates(
+        cache.current.sessions,
+        cache.current.revisions,
+        cache.current.pending,
+        rows,
+      );
+      cache.current.sessions = merged.sessions;
+      cache.current.revisions = merged.revisions;
+      if (rows.length) {
+        setSessions(merged.sessions);
+        persist();
+      }
+      setLastSynced(Date.now());
+      setSyncStatus("Progress synced");
+      const active = cache.current.sessions.find((s) => !s.status && owns(s));
+      if (active?.running && !readOnly) save(snapshot(active, clockNow()));
+    } catch {
+      setSyncStatus("Could not refresh. Retrying automatically.");
+    } finally {
+      pulling.current = false;
+    }
+  }, [owner, ready, flush, persist, owns, readOnly, save, clockNow]);
+  useEffect(() => {
+    if (!ready || owner === "local") return;
+    const visible = () => {
+      if (!document.hidden) void refreshProgress();
+    };
+    const timer = setInterval(visible, 15000);
+    window.addEventListener("online", visible);
+    window.addEventListener("focus", visible);
+    document.addEventListener("visibilitychange", visible);
+    void refreshProgress();
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", visible);
+      window.removeEventListener("focus", visible);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [ready, owner, refreshProgress]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 6000);
     return () => clearTimeout(timer);
   }, [notice]);
-  const active = sessions.find((s) => !s.status) ?? null;
+  const active =
+    sessions.find(
+      (s) =>
+        !s.status &&
+        (s.device_id === deviceId ||
+          (!s.device_id && legacySessions.includes(s.id))),
+    ) ?? null;
   return {
     sessions,
     active,
@@ -370,16 +454,22 @@ export function useTimer(owner: string | null) {
     clockSynced,
     now,
     notice,
+    reminder: alerts.reminder,
+    dismissReminder: alerts.dismissReminder,
+    testReminder: alerts.testReminder,
+    syncStatus,
+    lastSynced,
+    refreshProgress,
     error,
     readOnly,
     hasConflict,
     pauseAndSync: async () => {
-      if (readOnly)
+      if (hasConflict)
         throw new Error(
           "Close the other timer tab and resolve any sync conflict before switching profiles.",
         );
-      const active = cache.current.sessions.find((s) => !s.status);
-      if (active?.running) {
+      const active = cache.current.sessions.find((s) => !s.status && owns(s));
+      if (active?.running && !readOnly) {
         const recovered = pauseAfterInterruption(
           active,
           cache.current.heartbeat,
@@ -431,10 +521,12 @@ export function useTimer(owner: string | null) {
         !ready ||
         !clockReady ||
         readOnly ||
-        cache.current.sessions.some((s) => !s.status)
+        cache.current.sessions.some((s) => !s.status && owns(s))
       )
         return false;
+      arm();
       const timer = begin(work, rest, clockNow(), uuid);
+      timer.device_id = deviceId!;
       if (task) {
         timer.task_id = task.id;
         timer.task_name = task.name;
@@ -444,8 +536,9 @@ export function useTimer(owner: string | null) {
       return true;
     },
     action: (action: Parameters<typeof act>[1]) => {
-      const timer = cache.current.sessions.find((s) => !s.status);
+      const timer = cache.current.sessions.find((s) => !s.status && owns(s));
       if (timer && !readOnly) {
+        if (action === "resume") arm();
         const recovered = pauseAfterInterruption(
           timer,
           cache.current.heartbeat,
@@ -456,7 +549,6 @@ export function useTimer(owner: string | null) {
         const next = act(recovered, action, clockNow(), uuid);
         save(next);
         if (action === "skip") {
-          signal(next.phase);
           setNotice(
             next.phase === "break"
               ? "Break time. A moment to breathe."

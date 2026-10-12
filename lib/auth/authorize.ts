@@ -15,9 +15,11 @@ export async function authorize(request: Request, mutation = false) {
 export function apiError(error: unknown) {
   const raw =
     error instanceof Error ? error.message : "Unexpected server error";
-  const message = raw.includes("one_active_session_per_user")
-    ? "Session conflict: another session is already active"
-    : raw;
+  const message =
+    raw.includes("one_active_session_per_user") ||
+    raw.includes("one_active_session_per_device")
+      ? "Session conflict: another session is already active on this device"
+      : raw;
   const status =
     message === "Unauthorized"
       ? 401

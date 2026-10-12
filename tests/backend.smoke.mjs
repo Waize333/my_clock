@@ -50,6 +50,7 @@ const sid = randomUUID(),
   now = new Date().toISOString();
 const timer = {
   id: sid,
+  device_id: randomUUID(),
   task_id: randomUUID(),
   task_name: "Coursework",
   started_at: now,
@@ -110,6 +111,113 @@ assert.notEqual(
   ).response.status,
   200,
 );
+// A second login for the same account records independently on another device.
+const secondLogin = await request("/api/auth/sign-in/email", "POST", {
+  email: a.email,
+  password: a.password,
+});
+assert.equal(secondLogin.response.status, 200);
+const secondCookie = secondLogin.response.headers
+  .getSetCookie()
+  .map((c) => c.split(";")[0])
+  .join("; ");
+const deviceB = structuredClone(timer);
+deviceB.id = randomUUID();
+deviceB.device_id = randomUUID();
+deviceB.intervals[0].id = randomUUID();
+deviceB.intervals[0].session_id = deviceB.id;
+assert.equal(
+  (
+    await request(
+      "/api/sessions",
+      "POST",
+      { timer: deviceB, expectedRevision: 0 },
+      secondCookie,
+    )
+  ).response.status,
+  200,
+);
+const duplicate = structuredClone(timer);
+duplicate.id = randomUUID();
+duplicate.intervals[0].id = randomUUID();
+duplicate.intervals[0].session_id = duplicate.id;
+assert.equal(
+  (
+    await request(
+      "/api/sessions",
+      "POST",
+      { timer: duplicate, expectedRevision: 0 },
+      a.cookie,
+    )
+  ).response.status,
+  409,
+);
+const updates = await request(
+  "/api/sync",
+  "POST",
+  { revisions: { [timer.id]: 1 } },
+  a.cookie,
+);
+assert.equal(updates.response.status, 200);
+assert.equal(updates.data.length, 1);
+assert.equal(updates.data[0].timer_state.id, deviceB.id);
+assert.equal(
+  (
+    await request(
+      "/api/sync",
+      "POST",
+      { revisions: { [timer.id]: 1, [deviceB.id]: 1 } },
+      secondCookie,
+    )
+  ).data.length,
+  0,
+);
+assert.equal(
+  (await request("/api/sync", "POST", { revisions: {} }, b.cookie)).data.length,
+  0,
+);
+const wrongDevice = { ...timer, device_id: randomUUID() };
+assert.equal(
+  (
+    await request(
+      "/api/sessions",
+      "POST",
+      { timer: wrongDevice, expectedRevision: 1 },
+      a.cookie,
+    )
+  ).response.status,
+  409,
+);
+deviceB.running = false;
+deviceB.status = "completed";
+deviceB.ended_at = new Date().toISOString();
+deviceB.intervals[0].ended_at = deviceB.ended_at;
+deviceB.intervals[0].duration_sec = 1;
+assert.equal(
+  (
+    await request(
+      "/api/sessions",
+      "POST",
+      { timer: deviceB, expectedRevision: 1 },
+      secondCookie,
+    )
+  ).response.status,
+  200,
+);
+assert.equal(
+  (
+    await request(
+      "/api/sync",
+      "POST",
+      { revisions: { [timer.id]: 1, [deviceB.id]: 1 } },
+      a.cookie,
+    )
+  ).data[0].timer_state.status,
+  "completed",
+);
+console.log(
+  "PASS: separate device sessions, second-login shared progress, incremental sync, isolation and recording-device protection.",
+);
 const end = new Date().toISOString();
 timer.status = "completed";
 timer.running = false;
@@ -125,11 +233,14 @@ saved = await request(
 assert.equal(saved.response.status, 200, JSON.stringify(saved.data));
 assert.equal(saved.data.revision, 2);
 const history = await request("/api/sessions", "GET", undefined, a.cookie);
-assert.equal(history.data.length, 1);
-assert.equal(history.data[0].timer_state.task_name, "Coursework");
-assert.equal(history.data[0].timer_state.intervals[0].spans.length, 1);
-assert.equal(history.data[0].timer_state.intervals.length, 1);
-assert.equal(history.data[0].timer_state.intervals[0].duration_sec, 2);
+assert.equal(history.data.length, 2);
+const firstHistory = history.data.find(
+  (row) => row.timer_state.id === timer.id,
+);
+assert.equal(firstHistory.timer_state.task_name, "Coursework");
+assert.equal(firstHistory.timer_state.intervals[0].spans.length, 1);
+assert.equal(firstHistory.timer_state.intervals.length, 1);
+assert.equal(firstHistory.timer_state.intervals[0].duration_sec, 2);
 const pref = await request(
   "/api/profile",
   "PATCH",

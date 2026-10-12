@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/components/provider";
 import { DurationEditor } from "@/components/duration-editor";
+import { enableNotifications } from "@/lib/timer/reminders";
 import { dailyStats } from "@/lib/stats";
 export default function TimerPage() {
   const app = useApp();
@@ -56,16 +57,16 @@ export default function TimerPage() {
         rest < 1 ||
         rest > 60));
   async function notifications() {
-    if (!("Notification" in window)) {
-      setNotification("This browser does not support notifications.");
-      return;
+    try {
+      setNotification(await enableNotifications());
+      app.updateDeviceSettings({
+        reminders: { ...app.deviceSettings.reminders, notifications: true },
+      });
+    } catch {
+      setNotification(
+        "Could not enable browser notifications. Please try again.",
+      );
     }
-    const permission = await Notification.requestPermission();
-    setNotification(
-      permission === "granted"
-        ? "Notifications are on. We’ll let you know when it’s time."
-        : "Notifications are off. Transition banners will still appear here.",
-    );
   }
   return (
     <div className="timer-page">

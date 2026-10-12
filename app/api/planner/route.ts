@@ -12,6 +12,12 @@ export async function GET(request: Request) {
       ),
     );
     const row = result.rows[0];
+    const requested = new URL(request.url).searchParams.get("revision");
+    if (requested !== null && Number(requested) === Number(row?.revision || 0))
+      return Response.json({
+        unchanged: true,
+        revision: Number(row?.revision || 0),
+      });
     return Response.json(
       row
         ? { ...row, revision: Number(row.revision) }

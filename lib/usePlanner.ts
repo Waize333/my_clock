@@ -15,7 +15,12 @@ export function usePlanner(owner: string | null) {
     [plannerSaved, setSaved] = useState(false);
   const revision = useRef(0),
     generation = useRef(0),
-    saving = useRef(false);
+    saving = useRef(false),
+    editing = useRef(false),
+    polling = useRef(false);
+  const setPlannerEditing = useCallback((value: boolean) => {
+    editing.current = value;
+  }, []);
   const reloadPlanner = useCallback(async () => {
     if (!owner) return;
     const current = ++generation.current;
@@ -56,6 +61,59 @@ export function usePlanner(owner: string | null) {
       generation.current = requestGeneration + 1;
     };
   }, [reloadPlanner]);
+  useEffect(() => {
+    if (!owner || owner === "local" || !plannerReady) return;
+    let alive = true;
+    const refresh = async () => {
+      if (
+        document.hidden ||
+        saving.current ||
+        editing.current ||
+        polling.current
+      )
+        return;
+      polling.current = true;
+      const requested = revision.current,
+        current = generation.current;
+      try {
+        const result = await api<{
+          data?: Planner | null;
+          revision: number;
+          unchanged?: boolean;
+        }>(`/api/planner?revision=${requested}`);
+        if (
+          !alive ||
+          current !== generation.current ||
+          saving.current ||
+          editing.current ||
+          revision.current !== requested ||
+          result.unchanged
+        )
+          return;
+        revision.current = result.revision;
+        setPlanner(result.data || emptyPlanner(deviceTimezone()));
+      } catch {
+      } finally {
+        polling.current = false;
+      }
+    };
+    const visible = () => {
+      void refresh();
+    };
+    const timer = setInterval(visible, 15000);
+    window.addEventListener("cadence:refresh-planner", visible);
+    window.addEventListener("online", visible);
+    window.addEventListener("focus", visible);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener("cadence:refresh-planner", visible);
+      window.removeEventListener("online", visible);
+      window.removeEventListener("focus", visible);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [owner, plannerReady]);
   const savePlanner = async (next: Planner) => {
     if (!plannerReady || saving.current)
       throw new Error("Please wait for your planner to finish saving.");
@@ -95,5 +153,6 @@ export function usePlanner(owner: string | null) {
     plannerSaved,
     savePlanner,
     reloadPlanner,
+    setPlannerEditing,
   };
 }

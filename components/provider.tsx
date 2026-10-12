@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -11,6 +12,8 @@ import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth/client";
 import { rememberProfile } from "@/lib/profiles";
 import { useTimer } from "@/lib/timer/useTimer";
+import { useDeviceSettings } from "@/lib/useDeviceSettings";
+import type { DeviceSettings } from "@/lib/device-settings";
 import { usePlanner } from "@/lib/usePlanner";
 export type Profile = {
   id: string;
@@ -39,6 +42,8 @@ type Context = ReturnType<typeof useTimer> &
     toggleTheme: () => void;
     accountError: string;
     connected: boolean;
+    deviceSettings: DeviceSettings;
+    updateDeviceSettings: (values: Partial<DeviceSettings>) => void;
   };
 const AppContext = createContext<Context | null>(null);
 export function Provider({
@@ -54,8 +59,13 @@ export function Provider({
   const [accountError, setAccountError] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const router = useRouter();
-  const timer = useTimer(owner);
+  const device = useDeviceSettings(owner, profile);
+  const timer = useTimer(owner, device.id, device.settings.reminders);
   const planner = usePlanner(owner);
+  const effectiveProfile = useMemo(
+    () => ({ ...profile, ...device.settings }),
+    [profile, device.settings],
+  );
   useEffect(() => {
     let alive = true;
     if (!connected) {
@@ -103,25 +113,41 @@ export function Provider({
     const media = matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       const value =
-        profile.theme_pref === "system"
+        device.settings.theme_pref === "system"
           ? media.matches
             ? "dark"
             : "light"
-          : profile.theme_pref;
+          : device.settings.theme_pref;
       setTheme(value);
       document.documentElement.dataset.theme = value;
     };
     apply();
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [profile.theme_pref]);
+  }, [device.settings.theme_pref]);
   async function updateProfile(values: Partial<Profile>) {
-    const next = { ...profile, ...values };
-    if (connected && owner)
+    const next = {
+      ...profile,
+      username: values.username ?? profile.username,
+      display_name: values.display_name ?? profile.display_name,
+    };
+    if (
+      connected &&
+      owner &&
+      (next.username !== profile.username ||
+        next.display_name !== profile.display_name)
+    )
       await api("/api/profile", {
         method: "PATCH",
         body: JSON.stringify(next),
       });
+    device.update({
+      default_work_min:
+        values.default_work_min ?? device.settings.default_work_min,
+      default_break_min:
+        values.default_break_min ?? device.settings.default_break_min,
+      theme_pref: values.theme_pref ?? device.settings.theme_pref,
+    });
     localStorage.setItem(`cadence:profile:${owner}`, JSON.stringify(next));
     setProfile(next);
   }
@@ -130,14 +156,22 @@ export function Provider({
       value={{
         ...timer,
         ...planner,
-        profile,
-        accountReady,
+        profile: effectiveProfile,
+        deviceSettings: device.settings,
+        updateDeviceSettings: device.update,
+        accountReady: accountReady && device.ready,
         updateProfile,
         theme,
         toggleTheme: () => {
-          void updateProfile({
-            theme_pref: theme === "dark" ? "light" : "dark",
-          }).catch((e) => setAccountError(e.message));
+          try {
+            device.update({ theme_pref: theme === "dark" ? "light" : "dark" });
+          } catch (e) {
+            setAccountError(
+              e instanceof Error
+                ? e.message
+                : "Could not save device settings.",
+            );
+          }
         },
         accountError,
         connected,

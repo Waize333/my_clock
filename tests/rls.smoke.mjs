@@ -1,7 +1,11 @@
 import { Pool } from "pg";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-if (process.env.NEON_BRANCH !== "cadence-validation-20260922")
+if (
+  !["cadence-validation-20260922", "device-sync-validation-20261012"].includes(
+    process.env.NEON_BRANCH,
+  )
+)
   throw new Error("Use only the temporary validation branch.");
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL_UNPOOLED,
