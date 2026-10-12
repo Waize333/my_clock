@@ -2917,3 +2917,44 @@ body {
   font-size: 14px;
   flex-wrap: wrap;
 }
+
+.focus-extension {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin: 20px 0 8px;
+  text-align: center;
+}
+.focus-extension > span {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.extension-buttons {
+  display: flex;
+  gap: 12px;
+}
+.extension-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 100px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.extension-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.focus-extension small {
+  font-size: 0.875rem;
+  color: var(--muted);
+  max-width: 32ch;
+  line-height: 1.5;
+}

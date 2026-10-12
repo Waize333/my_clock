@@ -79,6 +79,38 @@ export function remaining(t: Timer, now: number) {
     t.remainingMs - (t.running ? Math.max(0, now - t.anchor) : 0),
   );
 }
+// Extend only the open focus interval; elapsed time and future presets stay intact.
+export function extendWork(timer: Timer, minutes: 2 | 5, now: number): Timer {
+  const current = timer.intervals.at(-1);
+  const left = remaining(timer, now);
+  if (
+    (minutes !== 2 && minutes !== 5) ||
+    timer.status ||
+    timer.phase !== "work" ||
+    !current ||
+    current.type !== "work" ||
+    current.ended_at ||
+    left <= 0 ||
+    current.planned_duration_sec + minutes * 60 > 10800
+  )
+    return timer;
+  const next = structuredClone(timer);
+  if (!next.intervals.at(-1)!.spans) {
+    next.intervals.at(-1)!.legacy_duration_sec = Math.max(
+      0,
+      current.planned_duration_sec - timer.remainingMs / 1000,
+    );
+    next.intervals.at(-1)!.spans = timer.running
+      ? [{ started_at: iso(timer.anchor), ended_at: null }]
+      : [];
+  }
+  next.intervals.at(-1)!.planned_duration_sec += minutes * 60;
+  next.intervals.at(-1)!.duration_sec =
+    current.planned_duration_sec - left / 1000;
+  next.remainingMs = left + minutes * 60000;
+  next.anchor = now;
+  return next;
+}
 export function advance(
   timer: Timer,
   now: number,

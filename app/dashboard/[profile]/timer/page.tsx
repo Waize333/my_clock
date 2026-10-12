@@ -12,6 +12,7 @@ import {
   Feather,
   Pause,
   Play,
+  Plus,
   RotateCcw,
   SkipForward,
 } from "lucide-react";
@@ -34,10 +35,9 @@ export default function TimerPage() {
   const isBreak = active?.phase === "break";
   const seconds = Math.ceil(active ? app.remaining / 1000 : work * 60);
   const minutes = Math.floor(seconds / 60);
+  const currentInterval = active?.intervals.at(-1);
   const progress = active
-    ? 1 -
-      app.remaining /
-        ((isBreak ? active.planned_break_min : active.planned_work_min) * 60000)
+    ? 1 - app.remaining / (currentInterval!.planned_duration_sec * 1000)
     : 0;
   const stats = dailyStats(
     app.sessions,
@@ -202,6 +202,35 @@ export default function TimerPage() {
             <SkipForward size={20} />
           </button>
         </div>
+        {active && !isBreak && (
+          <div className="focus-extension">
+            <span>Need a little longer?</span>
+            <div className="extension-buttons">
+              {([2, 5] as const).map((extra) => (
+                <button
+                  key={extra}
+                  type="button"
+                  className="extension-button"
+                  aria-label={`Add ${extra} minutes to this focus interval`}
+                  disabled={
+                    disabled ||
+                    app.remaining <= 0 ||
+                    currentInterval!.planned_duration_sec + extra * 60 > 10800
+                  }
+                  onClick={() => app.extendWork(extra)}
+                >
+                  <Plus size={16} aria-hidden="true" />
+                  {extra} min
+                </button>
+              ))}
+            </div>
+            <small>
+              {currentInterval!.planned_duration_sec >= 10800
+                ? "This focus interval has reached the 180-minute limit."
+                : "Extend this focus interval. Your break stays the same."}
+            </small>
+          </div>
+        )}
         {active && (
           <button
             className="text-button finish-button"
@@ -222,7 +251,9 @@ export default function TimerPage() {
             <span>
               Focus
               <strong>
-                {active?.planned_work_min ?? work}
+                {active && !isBreak
+                  ? currentInterval!.planned_duration_sec / 60
+                  : (active?.planned_work_min ?? work)}
                 <small> min</small>
               </strong>
             </span>

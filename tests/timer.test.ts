@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { begin, advance, act, remaining, snapshot } from "../lib/timer/core";
+import {
+  begin,
+  advance,
+  act,
+  remaining,
+  snapshot,
+  extendWork,
+} from "../lib/timer/core";
 import { dailyStats, longestStreak } from "../lib/stats";
 let counter = 0;
 const id = () => `id-${counter++}`;
@@ -79,4 +86,61 @@ test("invalid or zero durations cannot start an infinite transition loop", () =>
   assert.throws(() => begin(0, 10, 0, id));
   assert.throws(() => begin(50, 0, 0, id));
   assert.throws(() => begin(NaN, 10, 0, id));
+});
+
+test("focus extensions preserve actual time and delay the break without changing presets", () => {
+  const original = begin(10, 3, 0, id);
+  const extended = extendWork(original, 2, 4 * 60000);
+  assert.equal(remaining(extended, 4 * 60000), 8 * 60000);
+  assert.equal(snapshot(extended, 4 * 60000).intervals[0].duration_sec, 240);
+  assert.equal(original.intervals[0].planned_duration_sec, 600);
+  assert.equal(advance(extended, 10 * 60000, id).transitions.length, 0);
+  const result = advance(extended, 12 * 60000, id);
+  assert.deepEqual(result.transitions, ["break"]);
+  assert.equal(result.timer.intervals[0].duration_sec, 720);
+  assert.equal(remaining(result.timer, 12 * 60000), 3 * 60000);
+  const next = advance(result.timer, 15 * 60000, id).timer;
+  assert.equal(next.phase, "work");
+  assert.equal(next.intervals.at(-1)!.planned_duration_sec, 600);
+});
+test("paused extensions survive refresh, repeated extensions, resume and partial reset", () => {
+  const paused = act(begin(10, 3, 0, id), "pause", 60000, id);
+  const extended = extendWork(extendWork(paused, 2, 600000), 5, 900000);
+  const restored = JSON.parse(JSON.stringify(extended));
+  assert.equal(restored.running, false);
+  assert.equal(remaining(restored, 900000), 16 * 60000);
+  assert.equal(snapshot(restored, 900000).intervals[0].duration_sec, 60);
+  const resumed = act(restored, "resume", 900000, id);
+  assert.equal(
+    act(resumed, "reset", 960000, id).intervals[0].duration_sec,
+    120,
+  );
+});
+test("extension cannot revive expired or finished work, extend breaks, or exceed limits", () => {
+  const t = begin(1, 1, 0, id);
+  assert.equal(extendWork(t, 2, 60000), t);
+  const rest = advance(t, 60000, id).timer;
+  assert.equal(extendWork(rest, 5, 60000), rest);
+  const done = act(t, "finish", 30000, id);
+  assert.equal(extendWork(done, 2, 30000), done);
+  const max = begin(179, 1, 0, id);
+  assert.equal(extendWork(max, 2, 1000), max);
+  assert.equal(
+    extendWork(begin(178, 1, 0, id), 2, 0).intervals[0].planned_duration_sec,
+    10800,
+  );
+});
+
+test("extending older saved timers preserves their original elapsed spans", () => {
+  const t = begin(10, 3, 0, id);
+  delete t.intervals[0].spans;
+  t.remainingMs = 9 * 60000;
+  t.anchor = 60000;
+  const extended = extendWork(t, 2, 120000);
+  assert.equal(extended.intervals[0].legacy_duration_sec, 60);
+  assert.equal(
+    extended.intervals[0].spans![0].started_at,
+    new Date(60000).toISOString(),
+  );
+  assert.equal(snapshot(extended, 120000).intervals[0].duration_sec, 120);
 });

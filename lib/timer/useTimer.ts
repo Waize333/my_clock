@@ -1,6 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { act, advance, begin, remaining, snapshot, type Timer } from "./core";
+import {
+  act,
+  advance,
+  begin,
+  extendWork,
+  remaining,
+  snapshot,
+  type Timer,
+} from "./core";
 import { api } from "@/lib/api";
 import { useClock } from "@/lib/useClock";
 import type { Task } from "@/lib/planner";
@@ -533,6 +541,25 @@ export function useTimer(
         timer.task_target_min = task.targetMin;
       }
       save(timer);
+      return true;
+    },
+    extendWork: (minutes: 2 | 5) => {
+      const timer = cache.current.sessions.find((s) => !s.status && owns(s));
+      if (!timer || !ready || !clockReady || readOnly) return false;
+      const recovered = pauseAfterInterruption(
+        timer,
+        cache.current.heartbeat,
+        Date.now(),
+        uuid,
+        performance.now(),
+      );
+      const next = extendWork(recovered, minutes, clockNow());
+      if (next === recovered) {
+        if (recovered !== timer) save(recovered);
+        return false;
+      }
+      save(next);
+      setNotice(`Added ${minutes} minutes to this focus interval.`);
       return true;
     },
     action: (action: Parameters<typeof act>[1]) => {

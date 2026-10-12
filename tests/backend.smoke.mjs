@@ -188,17 +188,40 @@ assert.equal(
   ).response.status,
   409,
 );
+// A saved open interval can be extended and later completed at its new target.
+deviceB.intervals[0].planned_duration_sec += 120;
+deviceB.remainingMs += 120000;
+const extension = await request(
+  "/api/sessions",
+  "POST",
+  { timer: deviceB, expectedRevision: 1 },
+  secondCookie,
+);
+assert.equal(extension.response.status, 200, JSON.stringify(extension.data));
+assert.equal(extension.data.revision, 2);
+const extendedHistory = await request(
+  "/api/sessions",
+  "GET",
+  undefined,
+  a.cookie,
+);
+assert.equal(
+  extendedHistory.data.find((row) => row.timer_state.id === deviceB.id)
+    .timer_state.intervals[0].planned_duration_sec,
+  3120,
+);
 deviceB.running = false;
 deviceB.status = "completed";
 deviceB.ended_at = new Date().toISOString();
 deviceB.intervals[0].ended_at = deviceB.ended_at;
-deviceB.intervals[0].duration_sec = 1;
+deviceB.intervals[0].duration_sec = 3120;
+deviceB.intervals[0].completed = true;
 assert.equal(
   (
     await request(
       "/api/sessions",
       "POST",
-      { timer: deviceB, expectedRevision: 1 },
+      { timer: deviceB, expectedRevision: 2 },
       secondCookie,
     )
   ).response.status,
