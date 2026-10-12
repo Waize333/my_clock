@@ -238,6 +238,20 @@ export default function SettingsPage() {
             is open.
           </p>
         </section>
+        <section className="panel">
+          <h2>Your browser backup</h2>
+          <p className="section-copy">
+            Download this browser’s timer history and any copies kept when
+            resolving a sync conflict.
+          </p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={app.exportBackup}
+          >
+            Download browser backup
+          </button>
+        </section>
         <div className="save-row">
           <p role="status">{message}</p>
           <button

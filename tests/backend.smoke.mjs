@@ -353,6 +353,102 @@ assert.ok(Math.abs(clock.data.now - Date.now()) < 10000);
 console.log(
   "PASS: planner persistence, account isolation, conflict protection, validation and server clock.",
 );
+// Losing a response must not duplicate a write or turn a safe retry into a conflict.
+const retryTimer = structuredClone(timer);
+retryTimer.id = randomUUID();
+retryTimer.device_id = randomUUID();
+retryTimer.sync_write_id = randomUUID();
+retryTimer.status = null;
+retryTimer.ended_at = null;
+retryTimer.running = true;
+retryTimer.intervals[0].id = randomUUID();
+retryTimer.intervals[0].session_id = retryTimer.id;
+retryTimer.intervals[0].ended_at = null;
+const firstWrite = { timer: structuredClone(retryTimer), expectedRevision: 0 };
+assert.equal(
+  (await request("/api/sessions", "POST", firstWrite, a.cookie)).data.revision,
+  1,
+);
+const replay = await request("/api/sessions", "POST", firstWrite, a.cookie);
+assert.equal(replay.response.status, 200, JSON.stringify(replay.data));
+assert.equal(replay.data.revision, 1);
+assert.equal(
+  Number(
+    (
+      await request(
+        `/api/sessions?id=${retryTimer.id}`,
+        "GET",
+        undefined,
+        a.cookie,
+      )
+    ).data[0].revision,
+  ),
+  1,
+);
+assert.equal(
+  (
+    await request(
+      `/api/sessions?id=${retryTimer.id}`,
+      "GET",
+      undefined,
+      b.cookie,
+    )
+  ).data.length,
+  0,
+);
+assert.equal(
+  (await request("/api/sessions?id=bad", "GET", undefined, a.cookie)).response
+    .status,
+  400,
+);
+const reused = { ...retryTimer, remainingMs: retryTimer.remainingMs + 120000 };
+assert.equal(
+  (
+    await request(
+      "/api/sessions",
+      "POST",
+      { timer: reused, expectedRevision: 1 },
+      a.cookie,
+    )
+  ).response.status,
+  409,
+);
+retryTimer.sync_write_id = randomUUID();
+retryTimer.running = false;
+const nextWrite = { timer: structuredClone(retryTimer), expectedRevision: 1 };
+const concurrent = await Promise.all([
+  request("/api/sessions", "POST", nextWrite, a.cookie),
+  request("/api/sessions", "POST", nextWrite, secondCookie),
+]);
+assert.ok(
+  concurrent.every(
+    (result) => result.response.status === 200 && result.data.revision === 2,
+  ),
+  JSON.stringify(concurrent.map((r) => r.data)),
+);
+assert.equal(
+  (await request("/api/sessions", "POST", firstWrite, a.cookie)).response
+    .status,
+  409,
+);
+retryTimer.sync_write_id = randomUUID();
+retryTimer.status = "completed";
+retryTimer.ended_at = new Date().toISOString();
+retryTimer.intervals[0].ended_at = retryTimer.ended_at;
+const finishedWrite = { timer: retryTimer, expectedRevision: 2 };
+assert.equal(
+  (await request("/api/sessions", "POST", finishedWrite, a.cookie)).data
+    .revision,
+  3,
+);
+assert.equal(
+  (await request("/api/sessions", "POST", finishedWrite, a.cookie)).data
+    .revision,
+  3,
+);
+console.log(
+  "PASS: interrupted-response retries, concurrent duplicate requests, completed-session replay, stale-write rejection and private session lookup.",
+);
 const signedOut = await request("/api/auth/sign-out", "POST", {}, a.cookie);
 assert.equal(signedOut.response.status, 200);
 assert.equal(

@@ -12,6 +12,7 @@ export type Interval = {
   legacy_duration_sec?: number;
 };
 export type Timer = {
+  sync_write_id?: string;
   device_id?: string;
   id: string;
   task_id?: string;

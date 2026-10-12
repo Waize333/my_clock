@@ -15,13 +15,20 @@ import type { Task } from "@/lib/planner";
 import { pauseAfterInterruption, type Heartbeat } from "./suspension";
 import type { Reminders } from "../device-settings";
 import { useReminders } from "./reminders";
-import { mergeSessionUpdates, type SessionRow } from "./sync";
+import {
+  mergeSessionUpdates,
+  reconcileSessionWrite,
+  selectAccountVersion,
+  type SessionRow,
+  type SessionWrite,
+} from "./sync";
 const uuid = () => crypto.randomUUID();
 type Cache = {
   heartbeat?: Heartbeat;
   sessions: Timer[];
   revisions: Record<string, number>;
   pending: Record<string, Timer>;
+  attempts?: Record<string, SessionWrite>;
 };
 export function useTimer(
   owner: string | null,
@@ -53,6 +60,7 @@ export function useTimer(
   const writeAccess = useRef(true);
   const epoch = useRef(0);
   const conflict = useRef(false);
+  const conflictingIds = useRef(new Set<string>());
   const persist = useCallback(() => {
     if (!writeAccess.current) return;
     try {
@@ -83,29 +91,61 @@ export function useTimer(
         generation === epoch.current
       ) {
         const timer = Object.values(cache.current.pending)[0];
-        const expectedRevision = cache.current.revisions[timer.id] ?? 0;
-        const result = await api<{ revision: number }>("/api/sessions", {
-          method: "POST",
-          body: JSON.stringify({
-            timer: snapshot(timer, clockNow()),
-            expectedRevision,
-          }),
+        const attempts = (cache.current.attempts ??= {});
+        // Persist the exact request before sending it, even if newer edits replace the outbox entry.
+        const attempt = (attempts[timer.id] ??= {
+          timer: snapshot(timer, clockNow()),
+          expectedRevision: cache.current.revisions[timer.id] ?? 0,
         });
+        persist();
+        let revision: number;
+        try {
+          const result = await api<{ revision: number }>("/api/sessions", {
+            method: "POST",
+            body: JSON.stringify(attempt),
+          });
+          revision = result.revision;
+        } catch (e) {
+          if (generation !== epoch.current) return;
+          if (!(e instanceof Error) || !e.message.includes("conflict")) throw e;
+          const rows = await api<SessionRow[]>(`/api/sessions?id=${timer.id}`);
+          if (generation !== epoch.current) return;
+          const current = cache.current.pending[timer.id];
+          const reconciled = reconcileSessionWrite(
+            current,
+            attempt.expectedRevision,
+            attempt,
+            rows[0],
+          );
+          if (reconciled.kind !== "acknowledged") {
+            conflictingIds.current.add(timer.id);
+            throw e;
+          }
+          revision = reconciled.revision;
+        }
         if (generation !== epoch.current) return;
-        cache.current.revisions[timer.id] = result.revision;
-        if (cache.current.pending[timer.id] === timer)
+        cache.current.revisions[timer.id] = revision;
+        const pending = cache.current.pending[timer.id];
+        if (
+          (pending === timer && !timer.sync_write_id) ||
+          (pending?.sync_write_id &&
+            pending.sync_write_id === attempt.timer.sync_write_id)
+        )
           delete cache.current.pending[timer.id];
+        delete attempts[timer.id];
         persist();
         setError("");
       }
     } catch (e) {
+      if (generation !== epoch.current) return;
       const message = e instanceof Error ? e.message : "Connection lost";
       if (message.includes("conflict")) {
         conflict.current = true;
         setHasConflict(true);
+        setSyncStatus("Sync needs attention");
         setReadOnly(true);
         setError(
-          "Another device changed this session. Your unsynced browser copy is preserved. Reload to reconcile before continuing.",
+          "This session has different saved changes. Your browser copy is safe. Retry sync, or use the account version while keeping a backup.",
         );
       } else
         setError(
@@ -116,7 +156,9 @@ export function useTimer(
     }
   }, [owner, persist, clockNow]);
   const save = useCallback(
-    (timer: Timer) => {
+    (value: Timer) => {
+      const timer =
+        owner === "local" ? value : { ...value, sync_write_id: uuid() };
       cache.current.heartbeat = {
         sessionId: timer.id,
         at: clockNow(),
@@ -139,6 +181,7 @@ export function useTimer(
     writeAccess.current = true;
     legacyIds.current = new Set();
     conflict.current = false;
+    conflictingIds.current.clear();
     setHasConflict(false);
     setReady(false);
     setReadOnly(false);
@@ -185,15 +228,27 @@ export function useTimer(
           loadedFromServer = true;
           const pending = cache.current.pending;
           for (const timer of Object.values(pending)) {
-            if (
-              (revisions[timer.id] ?? 0) !==
-              (cache.current.revisions[timer.id] ?? 0)
-            ) {
+            const row = remote.find((s) => s.id === timer.id);
+            const reconciled = reconcileSessionWrite(
+              timer,
+              cache.current.revisions[timer.id] ?? 0,
+              cache.current.attempts?.[timer.id],
+              row
+                ? { timer_state: row, revision: revisions[timer.id] }
+                : undefined,
+            );
+            if (reconciled.kind === "acknowledged") {
+              cache.current.revisions[timer.id] = reconciled.revision;
+              if (reconciled.clearPending) delete pending[timer.id];
+              if (cache.current.attempts)
+                delete cache.current.attempts[timer.id];
+            } else if (reconciled.kind === "conflict") {
+              conflictingIds.current.add(timer.id);
               conflict.current = true;
               setHasConflict(true);
               setReadOnly(true);
               setError(
-                "This device has unsynced edits and the server has newer data. Your local copy is preserved; export it before clearing browser data.",
+                "This session has different saved changes. Your browser copy is safe. Retry sync, or use the account version while keeping a backup.",
               );
             }
           }
@@ -232,6 +287,7 @@ export function useTimer(
             uuid,
           );
           if (recovered !== active) {
+            if (owner !== "local") recovered.sync_write_id = uuid();
             cache.current.sessions = cache.current.sessions.map((s) =>
               s.id === active.id ? recovered : s,
             );
@@ -252,9 +308,11 @@ export function useTimer(
       setSyncStatus(
         owner === "local"
           ? "Saved in this browser"
-          : loadedFromServer
-            ? "Progress synced"
-            : "Offline browser copy",
+          : conflict.current
+            ? "Sync needs attention"
+            : loadedFromServer
+              ? "Progress synced"
+              : "Offline browser copy",
       );
       if (loadedFromServer) setLastSynced(Date.now());
       persist();
@@ -501,10 +559,21 @@ export function useTimer(
         );
     },
     exportBackup: () => {
+      const archivedCopies: unknown[] = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key?.startsWith(`cadence:conflict-backup:${owner}:`))
+            archivedCopies.push(JSON.parse(localStorage.getItem(key)!));
+        }
+      } catch {}
       const url = URL.createObjectURL(
-        new Blob([JSON.stringify(cache.current, null, 2)], {
-          type: "application/json",
-        }),
+        new Blob(
+          [JSON.stringify({ ...cache.current, archivedCopies }, null, 2)],
+          {
+            type: "application/json",
+          },
+        ),
       );
       const a = document.createElement("a");
       a.href = url;
@@ -512,15 +581,33 @@ export function useTimer(
       a.click();
       URL.revokeObjectURL(url);
     },
+    retrySync: () => location.reload(),
     useCloudVersion: () => {
       if (
         conflict.current &&
         window.confirm(
-          "Discard unsynced edits on this browser and load the account version? Download a copy first if you need to keep them.",
+          "Use the saved account version for the conflicting sessions? Your browser copy will be kept as a backup, and other unsynced sessions will still sync.",
         )
       ) {
-        localStorage.removeItem(`cadence:cache:${owner}`);
-        location.reload();
+        try {
+          localStorage.setItem(
+            `cadence:conflict-backup:${owner}:${Date.now()}`,
+            JSON.stringify(cache.current),
+          );
+          const next = selectAccountVersion(
+            cache.current,
+            conflictingIds.current,
+          );
+          localStorage.setItem(
+            `cadence:cache:${owner}`,
+            JSON.stringify({ ...next, legacyIds: [...legacyIds.current] }),
+          );
+          location.reload();
+        } catch {
+          setError(
+            "Could not save a safety backup. Download your browser copy before trying again.",
+          );
+        }
       }
     },
     remaining: active ? remaining(active, now) : 0,

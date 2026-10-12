@@ -145,6 +145,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
             {app.error}
             {app.hasConflict && (
               <div className="conflict-actions">
+                <button className="small-button" onClick={app.retrySync}>
+                  Retry sync
+                </button>
                 <button className="small-button" onClick={app.exportBackup}>
                   Download browser copy
                 </button>
