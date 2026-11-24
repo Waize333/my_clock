@@ -13,6 +13,7 @@ import {
   Waves,
   LogOut,
 } from "lucide-react";
+import { ActiveSession } from "./active-session";
 import { reminderText } from "@/lib/timer/reminders";
 import { useApp } from "./provider";
 import { clearPrivateCache } from "@/lib/profiles";
@@ -53,7 +54,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [app.reminder]);
   const base = `/dashboard/${app.profile.id}`;
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${app.active && !pathname.endsWith("/timer") ? "has-session-bar" : ""}`}
+    >
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
@@ -160,6 +163,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         )}
         {children}
       </main>
+      <ActiveSession visible={!pathname.endsWith("/timer")} />
       <footer>
         <span>A little structure. A little more space.</span>
         <span className="footer-right">

@@ -2958,3 +2958,350 @@ body {
   max-width: 32ch;
   line-height: 1.5;
 }
+
+/* Today's agenda stays independent of the weekly table's search. */
+.focus-agenda {
+  margin: 0 0 32px;
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--accent-soft), var(--bg) 75%);
+}
+.focus-agenda-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.focus-agenda .eyebrow {
+  font-size: 11px;
+  margin-bottom: 9px;
+}
+.focus-agenda h2 {
+  font-size: 25px;
+  font-weight: 600;
+}
+.focus-agenda-heading p {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 15px;
+}
+.focus-completion {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--accent);
+}
+.focus-agenda-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr));
+  gap: 16px;
+}
+.focus-task-card {
+  min-width: 0;
+  padding: 21px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+}
+.focus-card-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.focus-card-label > span:first-child {
+  overflow-wrap: anywhere;
+}
+.focus-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+.focus-task-card h3 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  margin: 14px 0 20px;
+  overflow-wrap: anywhere;
+}
+.focus-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.focus-progress-copy strong {
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.focus-progress-copy small {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.focus-progress-copy > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.focus-goal-meter {
+  height: 5px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+  margin: 12px 0 18px;
+}
+.focus-goal-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+}
+.focus-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.focus-card-footer > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.focus-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 9px;
+  padding: 10px 14px;
+  min-height: 44px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+.focus-start:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.focus-agenda-empty {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+.focus-agenda-empty > svg {
+  color: var(--accent);
+}
+.focus-agenda-empty > div {
+  flex: 1;
+  min-width: 180px;
+}
+.focus-agenda-empty strong {
+  font-size: 16px;
+  font-weight: 500;
+}
+.focus-agenda-empty p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.task-search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 0 24px 20px;
+}
+.planner-page .task-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: var(--bg);
+  width: min(100%, 400px);
+  min-height: 48px;
+  color: var(--muted);
+}
+.task-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.planner-page .task-search input[type="search"] {
+  border: 0;
+  outline: none;
+  padding: 12px 0;
+  min-width: 0;
+  width: 100%;
+  background: transparent;
+  font-size: 15px;
+}
+.task-search > svg {
+  flex-shrink: 0;
+}
+.task-search .icon-button {
+  width: 32px;
+  min-width: 32px;
+}
+.task-search-row > span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.planner-notes-row {
+  margin-top: 24px;
+}
+.planner-notes-row .panel {
+  margin: 0;
+}
+.has-session-bar {
+  padding-bottom: 110px;
+}
+.active-session-bar {
+  position: fixed;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(780px, calc(100% - 32px));
+  padding: 14px 18px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 17px;
+  box-shadow: 0 10px 40px #001a5029;
+}
+.active-session-symbol {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.active-session-copy {
+  flex: 1;
+  min-width: 0;
+}
+.active-session-copy strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.active-session-copy span {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.active-session-clock {
+  font-size: 23px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.active-session-bar .icon-button {
+  min-height: 44px;
+  min-width: 44px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.active-session-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+@media (max-width: 650px) {
+  .focus-agenda {
+    padding: 19px;
+    border-radius: 16px;
+  }
+  .focus-agenda h2 {
+    font-size: 23px;
+  }
+  .focus-task-card {
+    padding: 18px;
+  }
+  .task-search-row {
+    padding: 0 16px 18px;
+    gap: 12px;
+  }
+  .planner-page .task-search {
+    width: 100%;
+  }
+  .active-session-bar {
+    gap: 10px;
+    padding: 12px;
+    flex-wrap: wrap;
+  }
+  .active-session-symbol {
+    display: none;
+  }
+  .active-session-copy {
+    min-width: 90px;
+  }
+  .active-session-clock {
+    font-size: 21px;
+  }
+  .active-session-open {
+    width: 100%;
+    justify-content: center;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
+  .has-session-bar {
+    padding-bottom: 150px;
+  }
+}
+
+.task-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.focus-show-all {
+  margin-top: 18px;
+  min-height: 44px;
+  color: var(--accent);
+}
+
+.has-session-bar :is(button, a, input, textarea, select) {
+  scroll-margin-bottom: 170px;
+}
+.focus-task-card {
+  display: flex;
+  flex-direction: column;
+}
+.focus-card-label {
+  min-height: 27px;
+}
+.focus-task-card h3 {
+  flex: 1;
+}

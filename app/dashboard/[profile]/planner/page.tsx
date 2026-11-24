@@ -21,7 +21,10 @@ import {
   X,
   Download,
   RotateCcw,
+  Search,
 } from "lucide-react";
+import { FocusAgenda } from "@/components/focus-agenda";
+import { filterTasks } from "@/lib/focus-plan";
 import { useApp } from "@/components/provider";
 import {
   addDays,
@@ -459,7 +462,8 @@ export default function PlannerPage() {
     [zone, setZone] = useState(""),
     [archived, setArchived] = useState(false),
     [activityLimit, setActivityLimit] = useState(20),
-    [noteDirty, setNoteDirty] = useState(false);
+    [noteDirty, setNoteDirty] = useState(false),
+    [taskSearch, setTaskSearch] = useState("");
   const { setPlannerEditing } = app;
   useEffect(() => {
     setPlannerEditing(Boolean(editTask || logEditor || noteDirty));
@@ -467,7 +471,10 @@ export default function PlannerPage() {
   }, [editTask, logEditor, noteDirty, setPlannerEditing]);
   const week = chosenWeek || currentWeek,
     tasks = tasksForWeek(p, week),
-    visible = tasks.filter((t) => archived || !t.archived),
+    visible = filterTasks(
+      tasks.filter((t) => archived || !t.archived),
+      taskSearch,
+    ),
     analysisNow =
       Math.floor(app.now / (app.active?.running ? 1000 : 60000)) *
       (app.active?.running ? 1000 : 60000);
@@ -728,6 +735,17 @@ export default function PlannerPage() {
           </div>
           {view === "week" ? (
             <>
+              {week === currentWeek && (
+                <FocusAgenda
+                  tasks={tasks}
+                  day={today}
+                  checks={p.checks}
+                  logs={logIndex}
+                  disabled={!app.ready || app.readOnly || !!app.active}
+                  start={startTask}
+                  create={() => setEditTask(makeTask())}
+                />
+              )}
               <div className="week-navigation">
                 <button
                   className="icon-button"
@@ -820,6 +838,34 @@ export default function PlannerPage() {
                     />{" "}
                     Show archived
                   </label>
+                </div>
+                <div className="task-search-row">
+                  <div className="task-search">
+                    <Search size={18} aria-hidden="true" />
+                    <input
+                      type="search"
+                      aria-label="Search weekly tasks"
+                      placeholder="Search tasks, categories, notes…"
+                      value={taskSearch}
+                      onChange={(e) => setTaskSearch(e.target.value)}
+                    />
+                    {taskSearch && (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => setTaskSearch("")}
+                        aria-label="Clear task search"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <span role="status">
+                    {visible.length} {visible.length === 1 ? "task" : "tasks"}
+                    {taskSearch.trim()
+                      ? " found · weekly totals unchanged"
+                      : " in your weekly plan"}
+                  </span>
                 </div>
                 {visible.length ? (
                   <div
@@ -1012,6 +1058,21 @@ export default function PlannerPage() {
                       </tfoot>
                     </table>
                   </div>
+                ) : taskSearch.trim() ? (
+                  <div className="planner-empty">
+                    <Search size={30} />
+                    <h2>No matching tasks</h2>
+                    <p>
+                      Try another name or category. Your weekly plan is still
+                      here.
+                    </p>
+                    <button
+                      className="secondary-button"
+                      onClick={() => setTaskSearch("")}
+                    >
+                      Clear search
+                    </button>
+                  </div>
                 ) : (
                   <div className="planner-empty">
                     <CalendarDays size={36} />
@@ -1059,62 +1120,7 @@ export default function PlannerPage() {
                   </div>
                 )}
               </section>
-              <div className="planner-bottom-grid">
-                <section className="panel planner-today">
-                  <div className="planner-panel-title">
-                    <div>
-                      <span className="eyebrow">ONE THING AT A TIME</span>
-                      <h2>
-                        {week === currentWeek
-                          ? "On your list today"
-                          : "Your weekly rhythm"}
-                      </h2>
-                    </div>
-                    <Clock3 size={19} />
-                  </div>
-                  {tasks
-                    .filter(
-                      (t) =>
-                        !t.archived &&
-                        (week !== currentWeek ||
-                          t.days.includes(
-                            (new Date(today + "T12:00Z").getUTCDay() + 6) % 7,
-                          )),
-                    )
-                    .map((t) => (
-                      <div className="today-task" key={t.id}>
-                        <div>
-                          <strong>{t.name}</strong>
-                          <span>
-                            {t.workMin} min focus · {t.breakMin} min break
-                          </span>
-                        </div>
-                        <button
-                          className="icon-button"
-                          aria-label={`Start ${t.name}`}
-                          disabled={!app.ready || app.readOnly || !!app.active}
-                          onClick={() => startTask(t)}
-                        >
-                          <Play size={16} />
-                        </button>
-                      </div>
-                    ))}
-                  {!tasks.some((t) => !t.archived) && (
-                    <p className="form-hint">
-                      Your scheduled tasks will appear here.
-                    </p>
-                  )}
-                  {app.active && (
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        router.push(`/dashboard/${app.profile.id}/timer`)
-                      }
-                    >
-                      Return to running timer <ArrowRight size={15} />
-                    </button>
-                  )}
-                </section>
+              <div className="planner-notes-row">
                 <section className="panel planner-week-note">
                   <span className="eyebrow">LOOK BACK, MOVE FORWARD</span>
                   <h2>A note for this week</h2>
