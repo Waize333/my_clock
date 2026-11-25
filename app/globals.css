@@ -2965,7 +2965,7 @@ body {
   padding: 26px;
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: linear-gradient(135deg, var(--accent-soft), var(--bg) 75%);
+  background: var(--bg);
 }
 .focus-agenda-heading {
   display: flex;
@@ -3186,9 +3186,8 @@ body {
   width: min(780px, calc(100% - 32px));
   padding: 14px 18px;
   background: var(--bg);
-  border: 1px solid var(--accent);
-  border-radius: 17px;
-  box-shadow: 0 10px 40px #001a5029;
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 .active-session-symbol {
   display: grid;
